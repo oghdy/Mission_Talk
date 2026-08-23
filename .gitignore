@@ -23,3 +23,6 @@ npm-debug.log*
 
 # granite / apps-in-toss local cache
 .granite/
+
+# supabase CLI local link/cache state (project root, not backend/supabase/ which is real schema)
+/supabase/.temp/

@@ -354,12 +354,37 @@
 - 검증: 수정 후 다시 `VITE_API_BASE_URL` 채워서 프로덕션 빌드 → `vite preview`로 브라우저 확인 → 정상 렌더링, 콘솔 에러 없음. 그 상태로 실제 배포된 Render 백엔드와 미션 시작→턴 진행→클리어→수료증까지 **엔드투엔드 전체 플로우 재검증 완료**
 - `[교훈]` 앱인토스 SDK를 쓰는 함수는 전부 이렇게 "실제 WebView 밖에서 동기적으로 throw하는지" 소스 레벨로 확인하고 방어적으로 감싸야 함 — devtools mock이 있는 dev 모드만 보고 "됐다"고 판단하면 안 됨
 
+---
+
+### Step 17: Supabase 실제 연결 — 프로젝트 생성부터 스키마 적용까지
+
+*배경: Phase 2 Step 4에서 Supabase 연동 코드는 다 짜놨지만 자격증명이 없어서 계속 인메모리 폴백으로 돌고 있었음(서버 재시작하면 데이터 소실). `supabase` CLI로 로그인(사용자 직접) → 신규 프로젝트 생성 → 스키마 적용까지 전부 CLI/psql로 진행.*
+
+- **Task 17-1: [Infra] Supabase CLI 설치 + 로그인** `[AGENT 완료 / USER 로그인 완료]`
+  - `brew install supabase/tap/supabase`가 Xcode Command Line Tools 버전 문제로 실패 → GitHub 릴리즈(`supabase_2.115.0_darwin_arm64.tar.gz`)에서 바이너리 직접 받아 `/opt/homebrew/bin/supabase`에 설치
+  - `(USER 액션 완료)`: `supabase login`으로 브라우저 인증 — 이 계정에 기존 프로젝트 2개(`only_friends`, `oghdy's Project`)가 이미 있는 걸 확인했고, 둘 다 안 건드리고 새 프로젝트로 진행
+- **Task 17-2: [Infra] 신규 Supabase 프로젝트 생성** `[AGENT 완료]`
+  - `supabase orgs list`로 조직 확인(`oghdy`, id `yefzyquvjohicluemuds`) 후 `supabase projects create`로 생성
+  - 이름 `mission-talk`, 리전 `ap-northeast-2`(서울 — 기존 두 프로젝트와 동일 리전, 국내 사용자 레이턴시 고려), DB 비밀번호는 `openssl rand`로 32자 랜덤 생성
+  - 결과: project ref `ehugyuhdziiqnzrxibfo`, `https://ehugyuhdziiqnzrxibfo.supabase.co`, 생성 즉시 `ACTIVE_HEALTHY`
+  - `supabase projects api-keys`로 키 조회 — legacy `service_role` JWT(전체 값 노출됨)를 백엔드용으로 채택. 신형 `sb_secret_...` 키는 CLI가 보안상 마스킹해서 전체값을 못 받아옴
+- **Task 17-3: [DB] 스키마 적용** `[AGENT 완료]`
+  - `db.<ref>.supabase.co:5432` 직접 연결은 DNS resolve 실패(IPv4 직결 미지원 추정) → **Supavisor 풀러**(`aws-0-ap-northeast-2.pooler.supabase.com:5432`, user `postgres.<ref>`)로 전환하니 정상 연결
+  - `psql -f backend/supabase/schema.sql`로 `mission_talk_sessions` 테이블 + `user_key` 인덱스 생성, `\d`로 컬럼/인덱스 스키마 그대로 반영된 것 확인
+  - 관련 파일: [backend/supabase/schema.sql](backend/supabase/schema.sql) (내용 변경 없음, 이번엔 실제 DB에 최초 적용)
+- **Task 17-4: [Backend] 자격증명 반영 + 실동작 검증** `[AGENT 완료]`
+  - `backend/.env`에 `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` 채움, 서버 재시작 → "인메모리로 저장" 경고 로그 더 이상 안 뜨는 것으로 1차 확인
+  - `/persona/generate` 실제 호출 → 응답으로 받은 `sessionId`를 `psql`로 직접 조회해서 **실제 Postgres 테이블에 정확한 데이터(userKey 포함)가 들어간 것**까지 확인
+  - 검증용으로 넣은 테스트 행은 확인 후 삭제
+  - `(USER 액션 없음 — 참고)`: DB 비밀번호는 로컬 스크래치패드에만 저장하고 채팅엔 노출 안 함. 나중에 Supabase 대시보드에서 직접 psql/마이그레이션 도구를 쓰고 싶으면 **Settings → Database → Reset database password**로 새로 발급받아 쓰면 됨
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
 |---|---|---|
 | 턴 카운트 | 사용자 발화 기준 최대 7턴, LLM이 조기에 클리어 판정하면 즉시 종료 (고정 7턴 아님) | 명세서 5절 TBD 해소 |
-| DB | Supabase (`mission_talk_sessions` 테이블), 자격증명 없으면 인메모리 폴백 | 관리 간편성 + 로컬 테스트 편의 |
 | LLM 모델 | `claude-sonnet-5` (전체 엔드포인트 공통) | 지시사항 준수 충분 + 비용/속도 이점, 명세서 9절 "5분 내 완결" 원칙과 부합 |
 | 프롬프트 캐싱 | `/chat/turn`에 system + 증분 메시지 캐싱 적용 | 턴이 늘어날수록 인풋 비용 절감폭 증가 |
 | 턴 응답 길이 | 1~3문장 강제 지시 + max_tokens 600 하드 캡 | output 폭주(최대 1,238토큰 관측) 방지 |
@@ -377,3 +402,4 @@
 | 저장소 | GitHub [oghdy/Mission_Talk](https://github.com/oghdy/Mission_Talk) | Render 배포는 git 연동 필요 |
 | 백엔드 배포 | Render, https://mission-talk.onrender.com | 무료 티어 + git 자동배포 |
 | SDK 방어 코드 원칙 | 앱인토스 SDK 호출은 전부 try/catch로 감싸고, dev 모드(devtools mock)만 믿지 말고 프로덕션 빌드로 반드시 재검증 | `graniteEvent.addEventListener`가 프로덕션 빌드에서 앱 전체를 하얗게 죽이는 버그를 실제로 겪음 (Step 16) |
+| DB | Supabase 실연결 완료 (project ref `ehugyuhdziiqnzrxibfo`, 서울 리전), `mission_talk_sessions` 테이블 실제 생성·검증됨 | Step 17 — 더 이상 인메모리 폴백 아님 |
