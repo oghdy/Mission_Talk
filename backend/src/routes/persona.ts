@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { generatePersonaAndMission } from "../llm/persona.js";
+import { getCachedMission, saveMissionToCache } from "../missionCache.js";
 import { createSession } from "../store.js";
 import { DIFFICULTIES, LANGUAGES } from "../types.js";
 
@@ -24,7 +25,13 @@ router.post("/", async (req, res) => {
   const { language, role, personality, difficulty, userKey } = parsed.data;
 
   try {
-    const persona = await generatePersonaAndMission({ language, role, personality, difficulty });
+    const cacheKey = { language, difficulty, role, personality };
+    const cached = await getCachedMission(cacheKey);
+    const persona = cached ?? (await generatePersonaAndMission({ language, role, personality, difficulty }));
+    if (!cached) {
+      await saveMissionToCache(cacheKey, persona);
+    }
+
     const session = await createSession({ language, role, personality, difficulty, persona, userKey });
     res.json({
       sessionId: session.id,
