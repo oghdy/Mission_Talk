@@ -325,7 +325,34 @@
 
 ### Step 16: 백엔드 배포
 
-*배경: 지금 백엔드는 `localhost:3001`에서만 떠 있음. 실제 폰으로 QR 테스트하거나 콘솔 심사에 실제로 통과해서 출시하려면, 실제 기기가 인터넷으로 접근 가능한 HTTPS 주소가 있어야 함(Task 13-4에서 만든 `VITE_API_BASE_URL`을 채울 값이기도 함). 로컬 CLI(`flyctl`/`railway`/`vercel`/`gcloud`/`aws` 등)나 계정 설정 흔적이 이 환경에 없어서, 플랫폼 선택과 계정 생성은 사용자 확인 필요 — `[TBD, 진행 중]`
+*배경: 지금 백엔드는 `localhost:3001`에서만 떠 있음. 실제 폰으로 QR 테스트하거나 콘솔 심사에 실제로 통과해서 출시하려면, 실제 기기가 인터넷으로 접근 가능한 HTTPS 주소가 있어야 함(Task 13-4에서 만든 `VITE_API_BASE_URL`을 채울 값이기도 함). 플랫폼은 사용자가 **Render**(git 연동 자동배포, 무료 티어) 선택.*
+
+- **Task 16-1: [Infra] git 저장소 초기화 + GitHub push** `[AGENT 완료]`
+  - 프로젝트가 git 저장소가 아니었어서 `git init` + 첫 커밋(45개 파일) + push
+  - `backend/.env`(실제 API 키 포함)가 `.gitignore`로 정상 제외되는 것 커밋 전에 재확인함
+  - `backend/tsconfig.tsbuildinfo`, `frontend/tsconfig.tsbuildinfo`(빌드 캐시)는 커밋 대상에서 제외하고 `.gitignore`에 `*.tsbuildinfo` 추가
+  - GitHub 저장소는 사용자가 직접 생성: [github.com/oghdy/Mission_Talk](https://github.com/oghdy/Mission_Talk)
+  - `(USER 액션 완료)`: `gh auth login`으로 GitHub 인증 — 이건 사용자가 직접 브라우저로 로그인해야 하는 부분이라 대신 못 함
+  - 참고: 커밋 작성자가 `하도윤 <hadohadopapi@hadoyun-ui-MacBookAir.local>`로 자동 설정됨(로컬 유저명/호스트명 기반) — 실제 GitHub 계정 이메일과 다를 수 있음, 필요하면 `git config --global user.email`로 직접 수정
+- **Task 16-2: [Backend] 배포용 빌드 검증** `[AGENT 완료]`
+  - `npm run build`(tsc) → `dist/` 생성 → `PORT` 환경변수로 재정의해서 `npm start` 실행까지 실제로 확인 (Render는 자체 `PORT`를 주입하는데, `index.ts`가 이미 `process.env.PORT` 우선 사용하도록 되어 있어서 별도 수정 불필요)
+  - 관련 파일: [backend/package.json](backend/package.json)(`build`/`start` 스크립트 기존에 이미 있었음)
+- **Task 16-3: [Infra] Render 웹서비스 생성** `[AGENT 완료 — USER가 대시보드에서 생성]`
+  - Root Directory `backend`, Build `npm install && npm run build`(Render 기본값 `npm install; npm run build`도 동일 효과라 그대로 둠), Start `npm start`, env: `ANTHROPIC_API_KEY`만 우선 등록(Supabase는 아직 없어서 인메모리 유지)
+  - 배포 주소: **https://mission-talk.onrender.com**
+  - 검증: `/health`, `/persona/generate` curl로 실제 200 확인(첫 호출은 무료 티어 콜드스타트 포함 12초)
+
+#### ⚠️ 중요 발견 2: 프로덕션 빌드에서 앱 전체가 하얗게 죽는 버그 발견 + 수정
+
+- Render 배포 검증 겸, `VITE_API_BASE_URL`을 실제 배포 URL로 채운 **프로덕션 빌드**(`vite build`)를 `vite preview`로 띄워서 브라우저로 열어보니 **완전히 빈 흰 화면**이 뜸
+- 콘솔 확인 결과: `Error: apps-in-toss 웹뷰 환경이 아니에요. 토스 앱 안에서만 호출할 수 있어요.` — Task 14-2에서 추가한 `graniteEvent.addEventListener('backEvent', ...)` 호출이 원인
+  - `npm run dev`(로컬 개발)에서는 `@apps-in-toss/devtools`의 mock이 이 호출을 가로채서 문제가 안 드러났음
+  - 하지만 devtools mock은 **프로덕션 빌드에서 기본적으로 꺼짐** — 그 상태에서는 실제 SDK 구현이 그대로 실행되고, WebView가 아니면 동기적으로 `throw`함
+  - 리액트는 에러 바운더리가 없으면 렌더링 중 발생한 에러 하나로 **트리 전체를 unmount**함 — 그래서 앱 전체가 백지가 됨. 이건 콘솔 개발 중엔 절대 안 드러나고 실제 빌드로만 재현되는 종류의 버그라, 배포 검증을 안 했으면 그대로 심사에 냈다가 반려됐을 수 있음
+- **수정**: `graniteEvent.addEventListener` 호출을 `try/catch`로 감쌈 — WebView가 아니면 경고 로그만 남기고 조용히 리스너 등록을 건너뜀 (identity.ts/share.ts와 동일한 방어 패턴)
+- 관련 파일: [frontend/src/App.tsx](frontend/src/App.tsx)
+- 검증: 수정 후 다시 `VITE_API_BASE_URL` 채워서 프로덕션 빌드 → `vite preview`로 브라우저 확인 → 정상 렌더링, 콘솔 에러 없음. 그 상태로 실제 배포된 Render 백엔드와 미션 시작→턴 진행→클리어→수료증까지 **엔드투엔드 전체 플로우 재검증 완료**
+- `[교훈]` 앱인토스 SDK를 쓰는 함수는 전부 이렇게 "실제 WebView 밖에서 동기적으로 throw하는지" 소스 레벨로 확인하고 방어적으로 감싸야 함 — devtools mock이 있는 dev 모드만 보고 "됐다"고 판단하면 안 됨
 
 ## 확정된 결정 요약 (빠른 참조용)
 
@@ -347,3 +374,6 @@
 | 뒤로가기 | `graniteEvent`의 `backEvent` 가로채서 화면별 분기(최초=종료, 진행중=확인모달, 그외=바로 이탈) | 비게임 출시 가이드 뒤로가기 체크리스트 (Step 14 B-2) |
 | **TDS(`@toss/tds-mobile`)** | **설치 보류.** 번들에 도메인 화이트리스트 라이선스 게이트로 보이는 난독화 코드 발견(`console.log` 무력화 + charCode 스캔 + 해시 대조). 확인 모달은 TDS 없이 자체 구현으로 대체 | Step 14 참고 — 실사용 전 앱인토스 공식 채널에 문의 필요 |
 | Share SDK | `Share.sendMessage` + 폴백 체인(토스→Web Share API→클립보드) | `share`/`getTossShareLink`(최상위 함수)는 v3.0.5에서 deprecated |
+| 저장소 | GitHub [oghdy/Mission_Talk](https://github.com/oghdy/Mission_Talk) | Render 배포는 git 연동 필요 |
+| 백엔드 배포 | Render, https://mission-talk.onrender.com | 무료 티어 + git 자동배포 |
+| SDK 방어 코드 원칙 | 앱인토스 SDK 호출은 전부 try/catch로 감싸고, dev 모드(devtools mock)만 믿지 말고 프로덕션 빌드로 반드시 재검증 | `graniteEvent.addEventListener`가 프로덕션 빌드에서 앱 전체를 하얗게 죽이는 버그를 실제로 겪음 (Step 16) |

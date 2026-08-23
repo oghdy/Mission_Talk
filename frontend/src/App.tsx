@@ -57,25 +57,37 @@ export default function App() {
   // 앱인토스 네이티브 내비게이션 바의 뒤로가기 버튼(<)을 가로챈다. 등록하는 순간
   // 기본 뒤로가기 동작(그냥 닫히는 것)은 막히므로, 화면별 동작을 직접 정의해야 함
   // (비게임 출시 가이드: 최초 화면 뒤로가기 = 미니앱 종료, 그 외 = 이전 화면).
+  //
+  // 실제 토스 WebView가 아닌 곳(로컬 프리뷰, 프로덕션 빌드를 브라우저로 직접 열람 등)에서는
+  // graniteEvent.addEventListener가 등록 즉시 동기적으로 throw함 — dev 모드에서는
+  // @apps-in-toss/devtools의 mock이 이 호출을 가로채서 문제가 안 드러나지만, mock이
+  // 꺼지는 프로덕션 빌드(vite build)에서는 그대로 터져서 앱 전체가 하얗게 죽는 걸
+  // 실제로 확인함(Step 16). identity.ts/share.ts와 동일하게 try/catch로 방어.
   useEffect(() => {
-    const unsubscribe = graniteEvent.addEventListener("backEvent", {
-      onEvent: () => {
-        const current = stageRef.current;
-        if (current.name === "input") {
-          Screen.close();
-          return;
-        }
-        if (current.name === "chat") {
-          // 진행 중인 미션이 있으면 실수로 나가지 않도록 확인 — TDS 모달 사용
-          setShowLeaveConfirm(true);
-          return;
-        }
-        // restoring / loading / result — 잃을 진행상황이 없으니 바로 처음 화면으로
-        leaveToInput();
-      },
-      onError: (err) => console.error("backEvent 처리 실패", err),
-    });
-    return unsubscribe;
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = graniteEvent.addEventListener("backEvent", {
+        onEvent: () => {
+          const current = stageRef.current;
+          if (current.name === "input") {
+            Screen.close();
+            return;
+          }
+          if (current.name === "chat") {
+            // 진행 중인 미션이 있으면 실수로 나가지 않도록 확인 모달을 띄움
+            setShowLeaveConfirm(true);
+            return;
+          }
+          // restoring / loading / result — 잃을 진행상황이 없으니 바로 처음 화면으로
+          leaveToInput();
+        },
+        onError: (err) => console.error("backEvent 처리 실패", err),
+      });
+    } catch (err) {
+      // 앱인토스 WebView가 아닌 환경 — 네이티브 뒤로가기 자체가 없으니 조용히 무시
+      console.warn("graniteEvent 등록 불가(앱인토스 WebView 환경이 아님)", err);
+    }
+    return () => unsubscribe?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
