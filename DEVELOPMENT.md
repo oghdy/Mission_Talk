@@ -377,6 +377,9 @@
   - `/persona/generate` 실제 호출 → 응답으로 받은 `sessionId`를 `psql`로 직접 조회해서 **실제 Postgres 테이블에 정확한 데이터(userKey 포함)가 들어간 것**까지 확인
   - 검증용으로 넣은 테스트 행은 확인 후 삭제
   - `(USER 액션 없음 — 참고)`: DB 비밀번호는 로컬 스크래치패드에만 저장하고 채팅엔 노출 안 함. 나중에 Supabase 대시보드에서 직접 psql/마이그레이션 도구를 쓰고 싶으면 **Settings → Database → Reset database password**로 새로 발급받아 쓰면 됨
+- **Task 17-5: [Infra] Render 배포본에도 자격증명 반영** `[AGENT 완료 — USER가 Render 대시보드에서 env 추가]`
+  - `(USER 액션 완료)`: Render 서비스 Environment에 `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` 추가 → 자동 재배포
+  - 검증: 로컬 `backend/.env`의 자격증명으로 Supabase REST API(PostgREST, `<SUPABASE_URL>/rest/v1/mission_talk_sessions`)를 직접 호출해서 확인 — DB 비밀번호 없이도 service_role 키만으로 조회 가능해서 이 방법 사용. 실제 배포 URL(`https://mission-talk.onrender.com`)로 `/persona/generate` 호출 → 그 응답의 `sessionId`가 Supabase 테이블에 그대로 들어있는 것 확인. 검증용 테스트 행은 REST API로 삭제
 
 ---
 
