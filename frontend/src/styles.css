@@ -121,6 +121,15 @@ button.secondary:disabled {
   cursor: not-allowed;
 }
 
+.random-fill-button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-style: dashed;
+  color: var(--text-dim);
+  margin-top: -8px;
+}
+
 .loading-screen {
   align-items: center;
   justify-content: center;

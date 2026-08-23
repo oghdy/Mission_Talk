@@ -383,6 +383,35 @@
 
 ---
 
+## Phase 6: 사용자 직접 QA (배포 전 점검)
+
+*배경: 로컬에서 사용자가 직접 여러 번 플레이해보면서 발견한 이슈들을 즉시 수정하는 라운드. 앱인토스 규약이 아니라 순수 제품/버그 품질 이슈라 Phase 5(외부 연동)와 분리.*
+
+### Step 18: 1차 수정 (사용자 리포트 3건 + 작업 중 발견한 크래시 1건)
+
+- **Task 18-1: [Frontend] "아무거나 골라줘" 랜덤 채우기 버튼** `[AGENT 완료]`
+  - 상대방/성격을 직접 고민하기 귀찮은 사용자를 위해, 순수 역할 15종 × 성격 11종 풀에서 각각 독립적으로 랜덤 선택해 채워주는 버튼 추가 (조합 다양성을 위해 역할·성격 쌍으로 안 묶고 따로 뽑음)
+  - 관련 파일: [frontend/src/screens/InputScreen.tsx](frontend/src/screens/InputScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)(`.random-fill-button`)
+  - 검증: 브라우저에서 클릭 → "미용실 디자이너" / "다정함"처럼 실제로 채워지는 것 확인
+- **Task 18-2: [Frontend] "상대방" placeholder가 성격을 이미 포함하고 있던 문제** `[AGENT 완료]`
+  - 기존 `예: 까칠한 카페 직원`은 "까칠한"이 성격 형용사라 상대방/성격 두 입력란의 역할이 헷갈림 → `예: 카페 직원`으로 수정, 랜덤 채우기 풀(Task 18-1)도 역할에서 성격 형용사 전부 배제
+  - 관련 파일: [frontend/src/screens/InputScreen.tsx](frontend/src/screens/InputScreen.tsx)
+- **Task 18-3: [LLM] 수료증 피드백(comment)이 학습 언어로 나오던 문제** `[AGENT 완료]`
+  - 스페인어로 미션 진행 후 수료증을 보면 개선 제안(comment)이 스페인어로 나옴 — 한국 사용자가 읽는 피드백인데 학습 언어와 설명 언어를 혼동한 것
+  - 시스템 프롬프트에 "comment의 설명 문장은 항상 한국어로, 고친 문장 예시만 대상 언어로 인용" 명시 + Zod 필드 설명도 동일하게 수정
+  - 관련 파일: [backend/src/llm/certificate.ts](backend/src/llm/certificate.ts)
+  - 검증: 일부러 어색한 스페인어(`Yo querer un cafe grande...`)로 실제 호출 → `"동사 활용이 틀렸어요. 'querer'는 원형이라..."` 처럼 설명은 한국어, 고친 문장(`'Quiero un café grande, por favor.'`)만 스페인어로 인용되는 것 확인
+- **Task 18-4: `[버그, 작업 중 발견]` `/chat/turn` JSON 파싱 크래시 (max_tokens 부족)** `[AGENT 완료]`
+  - Task 18-3 검증 중 스페인어 대화에서 `AnthropicError: Failed to parse structured output ... Unexpected end of JSON input` 발생, 프론트는 응답을 영영 못 받고 "..." 상태로 멈춤(타임아웃/에러 처리 없이 그냥 무한 대기)
+  - 원인: Step 7에서 output 폭주 방지용으로 `max_tokens`를 600으로 좁혀뒀는데, Sonnet 5는 기본적으로 적응형 thinking이 켜져 있어서(생략하면 자동 adaptive) thinking 토큰도 같은 `max_tokens` 예산을 나눠 씀. 스페인어처럼 사고 과정이 길어지는 케이스에서 600으로는 부족해 JSON이 채 안 끝나고 잘림
+  - 수정: `max_tokens`를 2000으로 다시 올림 — 응답 길이 통제는 이미 system 프롬프트의 "1~3문장" 지시가 담당하고 있어서 실제 답변이 길어지진 않음, `max_tokens`는 순수 안전 여유분 용도로만 씀
+  - 관련 파일: [backend/src/llm/chat.ts](backend/src/llm/chat.ts)
+  - 검증: 동일하게 실패했던 스페인어 문장으로 재호출 → 정상 응답 + `missionComplete: true`까지 확인
+  - `[정정]` 처음엔 "502를 받고도 프론트가 에러 표시 없이 무한 로딩된다"고 오판했으나, 실제로는 테스트 중이던 백엔드가 코드 수정으로 `tsx watch`에 의해 재시작되면서 요청이 끊긴 것이 원인 — `ChatScreen.tsx`의 `sendTurn` 호출은 이미 try/catch로 에러를 잡아 화면에 표시함
+  - `[TBD]` 다만 이 과정에서 진짜 갭 하나를 발견함: [frontend/src/api.ts](frontend/src/api.ts)의 `fetch()` 호출에 타임아웃이 없어서, 연결이 깔끔하게 끊기지 않고 그냥 멈춰버리는 상황(서버 크래시, 네트워크 불안정 등)에서는 fetch Promise가 영영 안 끝나 "전송 중..."/"..." 상태로 무기한 멈출 수 있음 — `AbortController` 기반 타임아웃 추가가 다음 라운드 후보
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
@@ -406,3 +435,7 @@
 | 백엔드 배포 | Render, https://mission-talk.onrender.com | 무료 티어 + git 자동배포 |
 | SDK 방어 코드 원칙 | 앱인토스 SDK 호출은 전부 try/catch로 감싸고, dev 모드(devtools mock)만 믿지 말고 프로덕션 빌드로 반드시 재검증 | `graniteEvent.addEventListener`가 프로덕션 빌드에서 앱 전체를 하얗게 죽이는 버그를 실제로 겪음 (Step 16) |
 | DB | Supabase 실연결 완료 (project ref `ehugyuhdziiqnzrxibfo`, 서울 리전), `mission_talk_sessions` 테이블 실제 생성·검증됨 | Step 17 — 더 이상 인메모리 폴백 아님 |
+| 랜덤 채우기 | 상대방/성격 입력란에 "🎲 아무거나 골라줘" 버튼 추가 | 입력 고민하기 귀찮은 사용자 배려 (Step 18) |
+| 상대방 입력 규칙 | placeholder·랜덤 풀 모두 순수 역할만, 성격 형용사 안 섞음 | 상대방/성격 두 입력란 역할 혼동 방지 (Step 18) |
+| 수료증 피드백 언어 | comment 설명은 항상 한국어, 고친 문장 예시만 학습 언어로 인용 | 한국 사용자용 앱이라 설명까지 외국어로 나오면 안 됨 (Step 18) |
+| `/chat/turn` max_tokens | 600 → 2000으로 복원 | Sonnet 5 적응형 thinking이 같은 예산을 나눠 써서 600은 JSON 파싱 크래시 유발 (Step 18) |

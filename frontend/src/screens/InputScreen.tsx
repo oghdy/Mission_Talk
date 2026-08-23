@@ -14,6 +14,43 @@ const DIFFICULTY_OPTIONS: { value: Difficulty; label: string }[] = [
   { value: "hard", label: "상" },
 ];
 
+// 순수 역할만 — 성격 형용사는 안 섞음 (성격은 별도 입력란 몫).
+const ROLE_SAMPLES = [
+  "카페 직원",
+  "면접관",
+  "소개팅 상대",
+  "편의점 알바생",
+  "택시 기사",
+  "헬스 트레이너",
+  "호텔 프런트 직원",
+  "여행 가이드",
+  "미용실 디자이너",
+  "옆집 이웃",
+  "신입사원 동기",
+  "룸메이트",
+  "애견카페 직원",
+  "공항 체크인 직원",
+  "중고거래 판매자",
+];
+
+const PERSONALITY_SAMPLES = [
+  "친절함",
+  "까칠함",
+  "츤데레",
+  "무뚝뚝함",
+  "유머러스함",
+  "수다스러움",
+  "시크함",
+  "다정함",
+  "무심함",
+  "열정적임",
+  "새침함",
+];
+
+function pickRandom(list: string[]): string {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 export interface InputValue {
   language: Language;
   role: string;
@@ -32,6 +69,11 @@ export function InputScreen({
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
   const canSubmit = role.trim().length > 0 && personality.trim().length > 0;
+
+  function handleRandomFill() {
+    setRole(pickRandom(ROLE_SAMPLES));
+    setPersonality(pickRandom(PERSONALITY_SAMPLES));
+  }
 
   return (
     <div className="screen input-screen">
@@ -59,7 +101,7 @@ export function InputScreen({
         <input
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          placeholder="예: 까칠한 카페 직원"
+          placeholder="예: 카페 직원"
           maxLength={100}
         />
       </label>
@@ -73,6 +115,10 @@ export function InputScreen({
           maxLength={100}
         />
       </label>
+
+      <button type="button" className="secondary random-fill-button" onClick={handleRandomFill}>
+        🎲 아무거나 골라줘
+      </button>
 
       <label>
         난이도
