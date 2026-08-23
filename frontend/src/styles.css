@@ -1,0 +1,329 @@
+/* 라이트 모드 고정 — 비게임 미니앱 출시 가이드 "미니앱 테마는 라이트 모드로
+   구현돼 있어요" 요건. 앱인토스 심사 반려 사유라 다크 모드로 되돌리지 말 것
+   (Step 12 감사 A-1, apps-in-toss.config.ts의 navigationBar.theme: "light"와 짝). */
+:root {
+  --bg: #ffffff;
+  --surface: #f3f4f6;
+  --primary: #4f7cff;
+  --text: #16181d;
+  --text-dim: #6b7280;
+  --border: #e2e4e9;
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 20px;
+  gap: 16px;
+}
+
+h1 {
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  margin: 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+input:focus {
+  outline: 2px solid var(--primary);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.chip.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+button.primary {
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: auto;
+}
+
+button.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button.secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.loading-screen {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-screen {
+  padding-bottom: 12px;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.mission-goal {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.turn-counter {
+  font-size: 13px;
+  color: var(--primary);
+  white-space: nowrap;
+  margin-left: 12px;
+}
+
+.message-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.bubble.persona {
+  background: var(--surface);
+  align-self: flex-start;
+  border: 1px solid var(--border);
+}
+
+.bubble.user {
+  background: var(--primary);
+  color: white;
+  align-self: flex-end;
+}
+
+.bubble.pending {
+  opacity: 0.6;
+}
+
+.hint-box {
+  background: rgba(79, 124, 255, 0.12);
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.hint-box .hint-text {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.hint-box .hint-translation {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+}
+
+.composer input {
+  flex: 1;
+}
+
+.hint-button {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.error {
+  color: #ff6b6b;
+  font-size: 14px;
+  margin: 0;
+}
+
+.top-error {
+  padding: 12px 20px 0;
+}
+
+.share-notice {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0;
+  text-align: center;
+}
+
+.certificate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.certificate-turn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.certificate-turn .user-text {
+  margin: 0 0 4px;
+}
+
+.certificate-turn .grade {
+  margin: 0;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.certificate-turn .comment {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.result-actions button {
+  flex: 1;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-card {
+  background: var(--bg);
+  border-radius: 16px 16px 0 0;
+  padding: 24px 20px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.modal-description {
+  margin: 0 0 24px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.modal-actions button {
+  flex: 1;
+}

@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# env files (contain real API keys / secrets)
+.env
+.env.local
+.env.*.local
+
+# build output
+dist/
+build/
+*.ait
+*.tsbuildinfo
+
+# logs
+npm-debug.log*
+*.log
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# granite / apps-in-toss local cache
+.granite/
