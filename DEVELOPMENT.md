@@ -217,7 +217,7 @@
   - 관련 파일: [frontend/apps-in-toss.config.ts](frontend/apps-in-toss.config.ts), [frontend/vite.config.ts](frontend/vite.config.ts), [frontend/package.json](frontend/package.json)
   - `[중요 발견]` 문서 사이트(GitBook)는 `granite.config.ts`(2.x 구버전 스키마)를 보여주는데, 실제 설치되는 최신 버전(3.0.5)은 `apps-in-toss.config.ts`를 씀 — 스키마도 다름(`brand.displayName`/`icon` 없음, `navigationBar`/`webView` 옵션 새로 생김). 설치된 패키지의 `.d.ts`에서 직접 확인한 스키마를 신뢰함 (`node_modules/@apps-in-toss/web-framework/dist/config.d.ts`)
   - 검증: `npx vite build` + `npx ait build` 둘 다 실제로 `.ait` 번들 생성까지 성공
-  - `(USER 액션: 콘솔에 실제 미니앱 등록 후 appName을 실제 값으로 교체 필요 — 현재 워크스페이스 2개 다 미니앱 0개 확인함)`
+  - `(완료)`: Step 15에서 콘솔에 실제 등록함 — appName `mission-talk`이 플레이스홀더가 아니라 실제 등록값으로 확정됨
 
 - **Task 13-3: [Full-stack] 사용자 식별키 연동 + 재접속 시 데이터 유지 (A-3, A-4)** `[AGENT 완료]`
   - **식별키**: `User.getAnonymousKey()` 연동. `IdentityProvider` 인터페이스 + `TossAnonymousKeyProvider`(실제 SDK) / `LocalDevIdentityProvider`(로컬 브라우저 폴백, `localStorage` UUID)를 순서대로 시도하는 `FallbackIdentityProvider`로 구성 — 실행 환경과 무관하게 항상 동일한 인터페이스로 사용 (Chain-of-Responsibility 스타일 폴백 패턴)
@@ -300,11 +300,11 @@
 - ⚠️ 판단 보류 3건(수료증 이미지 공유 가능 여부, 응답 지연, 공유 스킴)도 그대로 미해결
 - 뒤로가기 실기기 검증 — 실제 토스 앱/샌드박스 앱에서 QR 테스트 필요
 
-### Step 15: 콘솔 미니앱 등록 준비 (실제 제출은 보류)
+### Step 15: 콘솔 미니앱 등록
 
 *배경: `apps-in-toss.config.ts`의 `appName: "mission-talk"`가 아직 플레이스홀더였음(Task 13-2). 실제 콘솔 등록이 있어야 내비게이션 바 브랜드 표시(B-5), 실기기 QR 테스트, 로고 등이 전부 풀림. 콘솔 MCP(`miniapp_create`)로 실제 등록 가능하지만 이건 진짜 심사 요청이 걸리는 액션(승인/반려 결과가 이메일로 옴, 영업일 약 2일)이라 사용자 확인 먼저 받음.*
 
-- **Task 15-1: [Infra] 등록 내용 초안 확정** `[AGENT 완료 — 제출은 USER 액션 대기]`
+- **Task 15-1: [Infra] 등록 내용 초안 확정** `[AGENT 완료]`
   - 워크스페이스: **trabajo** (id 80625) — trabajo00(80627)은 안 씀
   - 카테고리: **생활 > 교육** (categoryId 3800, subCategoryId 82) — "생활 > AI"(3830/90)도 후보였으나 사용자가 교육으로 확정
   - 확정된 필드값:
@@ -318,8 +318,12 @@
     | detailDescription | 언어/상대방 역할/성격/난이도를 입력하면 AI가 롤플레잉 캐릭터와 미션을 자동 생성합니다. 최대 7턴 동안 채팅으로 대화하며 미션을 클리어하고, '하' 난이도에서는 힌트 버튼으로 예문을 확인할 수 있습니다. 완료 후 턴별 문장 평가 결과를 확인하고 공유할 수 있습니다. |
     | appType | NON_GAME |
 
-  - **`(USER 액션 필요 — 블로커)`**: 로고 이미지 필수(600×600 PNG, 모서리 둥글림 불가, 투명배경 불가) — 아직 없어서 사용자가 "지금은 제출 보류"로 결정함. 로고 준비되면 `image_upload_url` → `miniApp.iconUri`에 넣어서 `miniapp_create` 호출로 이어서 진행
-  - 참고: `miniapp_create`는 로고 없이 나눠서 보내면 중간 상태로 심사가 걸려 반려되므로, 로고 포함해서 **한 번에** 전체 페이로드로 호출해야 함
+- **Task 15-2: [Design] 로고 제작 + 업로드 + 실제 제출** `[AGENT 완료]`
+  - 1차 시안(흰 배경 + "Mission Talk" 텍스트, 1080×1350)은 정사각형도 아니고 아이콘보다는 워드마크에 가까워서 보류 → 사용자가 **아케이드/픽셀아트 톤으로 재제작**: 말풍선(톡) + 체크마크(미션 클리어) 조합, 864×864, 배경색 `#4f7cff`(앱 primary 컬러와 동일) — "미션톡"이라는 이름 자체를 아이콘 하나로 표현하면서 앱 UI와 색이 자연스럽게 이어짐
+  - `sips`로 600×600 리사이즈(`assets/mission_talk_logo_600.png`), `image_upload_url` → S3 PUT 업로드 → `miniApp.iconUri`에 반영해서 `miniapp_create` 한 번에 제출(로고 누락 상태로 나눠 보내면 반려된다는 안내에 따름)
+  - 관련 파일: [assets/mission_talk_logo.png](assets/mission_talk_logo.png)(원본), [assets/mission_talk_logo_600.png](assets/mission_talk_logo_600.png)(제출용)
+  - **결과**: `miniAppId 68657`, `reviewState: IN_REVIEW` (영업일 약 2일 후 이메일 통보), 서비스 링크 `intoss://mission-talk`(출시 승인 전엔 안 열림), 콘솔 홈: https://apps-in-toss.toss.im/workspace/80625/mini-app/68657/home
+  - `[TBD]` 심사 결과 대기 중 — 승인/반려 여부에 따라 후속 조치 필요(반려 시 `miniapp_meta_status`의 `rejectedMessage`로 사유 확인 후 대응)
 
 ---
 
@@ -431,6 +435,43 @@
 
 ---
 
+## Phase 7: 아케이드 톤 UI 조미료 (계획만, 착수 전) `[전체 TBD]`
+
+*배경: Step 15에서 다시 만든 로고(말풍선+체크마크, 픽셀아트 톤, `#4f7cff`)가 예상보다 잘 나와서, 사용자가 "이 로고 느낌을 앱 전체 UI에도 아주 살짝만" 반영하고 싶다고 제안. 본인 표현으로 "조미료로 쓰는 느낌 — 전부 다 아케이드 게임처럼 바꾸는 게 아니라". 아직 코드 변경 없이 **계획만 상세히 기록**해두는 단계 — 착수는 다음 지시를 기다림.*
+
+### 설계 원칙 (반드시 지킬 가드레일)
+
+- **손대는 것**: 장식/구조 요소(테두리, 진행 표시, 강조 애니메이션, 아이콘) — 로고가 이미 앱 primary 컬러(`#4f7cff`)와 일치하니 거기서 자연스럽게 확장
+- **손대지 않는 것**:
+  - 본문 텍스트 폰트 — 한글/일본어/중국어를 픽셀 폰트로 바꾸면 가독성이 크게 떨어짐. 픽셀 폰트는 숫자·영문 UI chrome(턴 카운터, 버튼 라벨 등)처럼 좁은 범위에만 스코프
+  - 전체 레이아웃 구조 — Step 13 A-1에서 통과시킨 라이트 모드 규약, 체크리스트 대응 요소(뒤로가기, 확대축소 차단 등)는 그대로 유지
+  - 미니앱 용량/속도 — 명세서 9절 비기능 요구사항(WebView 성능). 이미지 에셋 추가 최소화하고 순수 CSS(클립패스, box-shadow 등)로 구현하는 걸 우선 검토할 것 — Step 14에서 TDS(무거운 외부 디자인 시스템) 붙였다가 빼버린 전례가 있어서, 이번에도 무거운 라이브러리 추가 없이 가는 게 원칙과 맞음
+
+### 후보 작업 목록 (전부 `[TBD]`, 순서는 임팩트 대비 작업량 기준 추천)
+
+- **Task 20-1: 디자인 토큰 확장**
+  - `styles.css`의 `:root`에 `--arcade-accent`(강조색, 로고의 파랑과 어울리는 보조색 후보), 픽셀 테두리 두께용 변수 추가 — 기존 `--bg`/`--surface`/`--primary` 패턴과 동일하게 토큰화해서 나중에 값만 바꿔도 전체에 반영되게
+  - 숫자·영문 라벨 전용 픽셀 폰트 후보: Google Fonts "Press Start 2P" (8비트 감성의 대표 폰트, 라틴 문자·숫자만 지원) — `font-family` fallback 체인에 기존 산세리프를 반드시 유지하고, 특정 클래스에만 스코프해서 CJK 텍스트가 실수로 이 폰트를 타지 않게 할 것
+- **Task 20-2: 버튼/카드 모서리를 각진 픽셀 스타일로**
+  - 둥근 `border-radius` 대신 계단식(stepped) 모서리 — `clip-path: polygon(...)`로 순수 CSS 구현(이미지 에셋 불필요, 성능 부담 없음)
+  - 적용 후보: `button.primary`, `button.secondary`, `.bubble`, `.certificate-turn`, `.modal-card`
+- **Task 20-3: 턴 카운터를 텍스트 대신 픽셀 프로그레스 바로**
+  - 지금 `0 / 7 턴` 텍스트를 7칸짜리 블록 게이지로 (진행된 턴만큼 칸이 채워지는 방식) — 순수 div + CSS로, 이미지 없이
+  - 관련 파일: [frontend/src/screens/ChatScreen.tsx](frontend/src/screens/ChatScreen.tsx)
+- **Task 20-4: "미션 클리어!" 연출 강화**
+  - 결과 화면 진입 시 CSS `@keyframes`로 짧은 펄스/반짝임 애니메이션 — 레트로 게임의 "클리어" 연출 느낌
+  - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx)
+- **Task 20-5: 힌트 버튼(💡) 아이콘을 블록/픽셀 아이콘으로 교체**
+  - 이모지 대신 작은 픽셀 아이콘(SVG 또는 CSS로 직접 그리기) — 우선순위 낮음, 위 4개 반영 후 여유 있으면
+- **Task 20-6 (선택, 검토만): 입력 화면 상단에 로고 배치**
+  - 지금은 로고가 앱 아이콘으로만 쓰이고 화면 안에는 없음 — 입력 화면 헤더에 작게 넣으면 브랜드 일관성이 더 살 수 있음. 다만 화면이 복잡해질 수 있어 실제로 넣어보고 판단 필요
+
+### 다음 단계
+
+사용자가 "지금 시작"이라고 명시하면 Task 20-1부터 순서대로 진행. 그 전까지는 이 계획만 유지하고 코드는 건드리지 않음.
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
@@ -442,7 +483,9 @@
 | 수료증 등급 | 5단계: 완벽해요/잘했어요/그럭저럭이에요/아쉬워요/헉... | 채점 기준은 난이도 무관 동일 적용 |
 | 힌트 기능 | 대사에 암묵적으로 섞지 않고, 명시적 UI 버튼(`💡 힌트`) + 별도 API로 제공 | 전 난이도에서 노출, 난이도별 어휘 수준 자동 조정 |
 | 가드레일 | 추가 필터링 레이어 없음, 프롬프트 지시만 유지 | 자유입력의 예측불가성이 재미 요소라는 판단 |
-| 앱인토스 SDK | Phase 5로 분리. Step 12 감사 항목 중 A/B군 대부분 완료(Step 13, 14). 남은 건 콘솔 실등록, RLS 재검토(불필요), TDS 대체 검토 | 코드만으로 완결 안 되고 외부 SDK 접근 필요 |
+| 앱인토스 SDK | Phase 5로 분리. Step 12 감사 항목 중 A/B군 전부 완료(Step 13, 14, 15). 콘솔 등록 완료(miniAppId 68657, 심사 중). 남은 건 심사 결과 대기, TDS 대체 검토 | 코드만으로 완결 안 되고 외부 SDK 접근 필요 |
+| 로고 | 말풍선+체크마크 픽셀아트, `#4f7cff`(앱 primary와 동일), 600×600 | Step 15 — 앱 이름("톡"+"미션 클리어")을 아이콘 하나로 표현 |
+| 아케이드 UI 조미료 | 계획만 문서화, 착수 전 | Phase 7 — 텍스트 폰트·레이아웃 구조는 안 건드리고 테두리/게이지/연출 위주로만 |
 | UI 테마 | 라이트 모드로 전환 완료 (Step 13 Task 13-5) | 비게임 출시 가이드 "미니앱 테마는 라이트 모드로 구현돼 있어요" (Step 12 A-1) |
 | 사용자 식별키 | `User.getAnonymousKey()` + 로컬 dev 폴백(`FallbackIdentityProvider`) | 문서의 `getAnonymousKey()`는 v3.0.5에서 deprecated, `User.getAnonymousKey()`가 현행 API |
 | 세션 재접속 | 클라이언트는 `sessionId`만 보관, 재진입 시 서버에서 최신 상태 재조회(`GET /chat/session/:id`) | 클라이언트-서버 상태 불일치 방지, 수료증도 캐시되어 재채점 없음 |
