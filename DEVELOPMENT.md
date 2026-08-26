@@ -549,6 +549,169 @@
 
 ---
 
+## Phase 9: 백엔드 전체 점검 (안정성 감사)
+
+*배경: 사용자가 실사용 중 **"가끔 대답이 안 오는 경우가 있다"**(원인 불명)고 리포트. 증상만 있고 원인이 특정되지 않은 상태라, 추측으로 고치지 않고 백엔드 전 파일(`backend/src/**`, 15개 파일 770줄)을 전수 점검하면서 각 가설을 **실제로 재현하거나 실측해서** 확정하는 방식으로 진행.*
+
+*원칙: Phase 1~8이 "기능을 만드는" 단계였다면 Phase 9는 "만든 기능이 안 죽게 하는" 단계. 기능 추가는 하지 않고, 장애 내성·관측성·유지보수성만 다룸.*
+
+### Step 25: 진단 — "대답이 안 옴"의 원인 규명 (증거 수집)
+
+*전략: 증상이 간헐적이라 로그로 추적이 안 됨(애초에 요청 로그 자체가 없었음). 그래서 코드에서 의심 지점을 먼저 뽑고, 각각을 격리된 재현 스크립트나 실측으로 검증함. 재현 안 된 가설은 "원인"이 아니라 "잠재 리스크"로 따로 분류해서 과잉 진단을 피함.*
+
+- **Task 25-1: `[진단]` Express 4 async 핸들러 rejection → 응답 누락 + 프로세스 크래시 (H-1)** `[AGENT 완료 — 재현 성공]`
+  - **가설**: Express 4는 async 핸들러가 반환한 Promise의 rejection을 잡지 않음(Express 5에서야 지원). 그런데 `getSession()` 호출이 **try/catch 밖**에 있는 라우트가 4개 있음 — [chat.ts:20](backend/src/routes/chat.ts), [hint.ts:18](backend/src/routes/hint.ts), [certificate.ts:18](backend/src/routes/certificate.ts), [session.ts:18](backend/src/routes/session.ts). Supabase 조회가 네트워크 문제 등으로 던지면 어떻게 되는가?
+  - **재현 결과 (실제 실행으로 확인)**:
+    1. 클라이언트에 **응답이 영원히 안 감** — 3초 타임아웃 걸어둔 fetch가 `TimeoutError`로 끝남(서버는 아무것도 안 보냄)
+    2. 더 심각: `unhandledRejection`이 발생하고, Node 15+ 기본 정책(`--unhandled-rejections=throw`)에 따라 **백엔드 프로세스 전체가 종료 코드 1로 죽음**. 프로세스에 `unhandledRejection` 핸들러가 없는 것도 확인함
+  - **영향**: 한 사용자의 DB 조회 실패 한 번이 → 그 요청 무응답 + **서버 프로세스 사망** + 그 순간 처리 중이던 **다른 모든 사용자의 요청도 동시에 끊김** + Render가 재시작하는 동안 다음 요청은 콜드스타트(Task 25-3). 사용자가 겪은 "가끔 대답이 안 옴"과 증상이 정확히 일치
+  - **판정**: **1순위 원인.** 간헐적으로 보이는 이유도 설명됨 — Supabase 호출이 항상 실패하는 게 아니라 가끔 실패하기 때문
+  - 검증 환경: 실제 설치된 `express@4.22.2` + `node v25.7.0`으로 격리 재현 스크립트 실행
+
+- **Task 25-2: `[진단]` LLM 호출에 타임아웃이 없음 (H-2)** `[AGENT 완료 — 실측]`
+  - Anthropic SDK 클라이언트를 옵션 없이 `new Anthropic()`으로 생성 중([client.ts](backend/src/llm/client.ts)) — 실제 기본값을 런타임에서 직접 읽어보니 **`timeout: 600000ms`(10분), `maxRetries: 2`**
+  - 즉 최악의 경우 **10분 × (1회 + 재시도 2회) = 최대 30분** 동안 한 요청이 매달릴 수 있음
+  - 서버 소켓도 안 끊어줌 — Node `server.timeout`의 기본값이 **`0`(무제한)**인 것 실측 확인(`requestTimeout` 300초는 "요청을 수신하는" 시간 제한이라 응답 지연에는 적용 안 됨)
+  - 프론트엔드 `fetch()`에도 타임아웃이 없음 — Step 18 Task 18-4에서 이미 `[TBD]`로 남겨둔 바로 그 갭. 결과적으로 **백엔드·서버소켓·프론트 3중으로 전부 타임아웃이 없어서**, 한 번 늘어지면 화면이 "..." 상태로 무기한 멈춤
+  - **판정**: **2순위 원인.** H-1과 달리 프로세스가 죽지는 않지만, 사용자 체감 증상("대답이 안 옴")은 동일
+
+- **Task 25-3: `[진단]` Render 무료 티어 콜드스타트 (H-3)** `[AGENT 완료 — 실측]`
+  - 배포된 `https://mission-talk.onrender.com/health`를 연속 3회 측정: **1회차 22.6초** / 2회차 0.32초 / 3회차 0.12초
+  - 무료 티어는 유휴 15분이면 인스턴스를 내리고, 다음 요청에서 콜드부팅함. 연결(`time_connect`)은 26ms로 즉시 되는데 응답까지 22.6초 → 네트워크가 아니라 서버 기동 대기가 맞음
+  - **판정**: **3순위 원인(구조적 제약).** 코드로는 못 고침 — 유료 티어 전환이나 외부 주기적 핑이 필요한 인프라 결정 사항이라 사용자 판단 영역으로 남김(Step 28)
+  - 참고: H-1로 프로세스가 죽으면 그 직후 요청은 항상 이 콜드스타트를 함께 겪음 — 두 원인이 겹쳐서 체감 장애가 증폭됨
+
+- **Task 25-4: `[진단]` `hint.ts`의 `max_tokens: 500` 마진 (H-4)** `[AGENT 완료 — 재현 실패, 잠재 리스크로 분류]`
+  - **가설**: Step 18 Task 18-4에서 `chat.ts`의 `max_tokens: 600`이 Sonnet 5 적응형 thinking과 예산을 나눠 쓰다가 JSON이 잘려 크래시했음. [hint.ts](backend/src/llm/hint.ts)는 그보다도 작은 **500**이라 같은 이유로 터질 수 있음
+  - **실측**: 당시 실패했던 조건(스페인어 + hard 난이도 + 대화 기록 포함)으로 실제 API를 3회 호출 → **3회 모두 정상**, 출력 토큰 211 / 258 / 261. 여유는 약 2배
+  - **판정**: **현재 발생 중인 버그 아님.** 다만 동일 클래스의 실패가 실제로 일어난 전례가 있고 마진이 2배뿐이라, "원인"이 아니라 **잠재 리스크**로 분류하고 예방적으로만 조치(Task 27-3)
+  - `[기록]` 재현 안 된 가설을 원인으로 보고하지 않기 위해 이 항목을 일부러 남겨둠 — 이후 유지보수 시 "왜 이걸 건드렸나"의 근거
+
+- **Task 25-5: `[진단]` 관측성 부재 — 애초에 원인 추적이 불가능했던 이유** `[AGENT 완료]`
+  - 요청 로그가 전혀 없음. `console.error(err)`가 catch 블록에만 있어서, **H-1처럼 catch에 안 걸리는 실패는 아무 흔적도 안 남김**
+  - 어느 엔드포인트가 몇 초 걸렸는지, 어떤 세션에서 터졌는지 알 방법이 없어서 사용자가 "원인은 모르겠음"이라고 한 것이 당연한 상태였음
+  - **판정**: 버그는 아니지만, 이번 같은 일이 또 생겼을 때 다시 처음부터 재현해야 하는 구조 → 조치 대상(Task 27-6)
+
+#### 점검했으나 문제 없었던 항목 (과잉 수정 방지용 기록)
+
+- `missionCache.ts` — 조회/저장 실패가 전부 fail-open(경고 로그 후 새로 생성)으로 이미 올바르게 처리됨. 캐시가 죽어도 사용자 흐름을 안 막음
+- `store.ts`의 인메모리 폴백 — 분기 자체는 정상. 단 Supabase 경로의 에러가 위로 전파되는 게 H-1과 맞물리는 것이라 store 자체 수정은 불필요
+- `chat.ts`의 프롬프트 캐싱 구조(Step 6) — `cache_control` 경계 설정 정상, 회귀 없음
+- `certificate.ts` 라우트의 수료증 캐시 재사용(Task 13-3) — idempotent 동작 정상
+- 턴 카운트 경계(`turnNumber >= MAX_USER_TURNS`) — off-by-one 없음
+- `express.json()` 기본 본문 크기 제한 100kb + Zod의 `userText` 500자 제한 — 과대 요청 방어 이미 충분
+
+### Step 26: 앱인토스 규정 확인 (백엔드 관점)
+
+*사용자 요청에 따라 착수 전 `apps-in-toss-docs` MCP로 백엔드가 지켜야 할 규정을 확인. Phase 5의 감사는 프론트엔드 중심이었어서, 서버 쪽 규정은 이번이 처음 전수 확인.*
+
+- **Task 26-1: `[점검]` 자체 백엔드에 적용되는 규정과 적용 안 되는 규정 구분** `[AGENT 완료]`
+  - `askQuestion`으로 확인한 결과, 서버 관련 문서의 상당수가 **"앱인토스가 호출하는 파트너 서버 API"** 규격이라 우리에게 해당되지 않음을 명확히 함. 미션톡 백엔드는 Anthropic·Supabase만 호출하고 앱인토스 서버 API는 호출하지 않음
+  - **해당 없음(근거 확보)**: mTLS 인증서, 방화벽 허용 IP, 분당 3,000 QPM 제한, 공통 응답 봉투(`resultType`/`errorCode`, 비즈니스 오류를 HTTP 200으로 내리는 규격) — 문서 확인 결과 *"앱인토스 서버 API를 호출하지 않고 미니앱에서 직접 호출하는 자체 API라면 응답 형식은 자유롭게 정해도 된다"*
+    - `[중요]` 이 확인을 안 했으면 응답 봉투 규격을 맞추느라 **프론트엔드 API 계약 전체를 불필요하게 갈아엎을 뻔했음**. 현행 `{ replyText, missionComplete, ... }` 형태를 그대로 유지하는 게 규정상 맞음
+  - **해당됨 → 조치 대상**: CORS 허용 Origin 화이트리스트(Task 27-4)
+  - **이미 충족**: API 통신 HTTPS만 사용 (Render가 HTTPS 제공, Task 13-4에서 `VITE_API_BASE_URL`로 절대 URL 적용 완료)
+  - 관련 문서: [서버 API 이용하기](https://developers-apps-in-toss.toss.im/documentation/integration/server-api), [응답 형식](https://developers-apps-in-toss.toss.im/documentation/api/response-format), [비게임 출시 가이드](https://developers-apps-in-toss.toss.im/checklist/app-nongame)
+
+- **Task 26-2: `[점검]` 미니앱 Origin 도메인 확정** `[AGENT 완료]`
+  - SDK 3.x(우리가 쓰는 버전) 기준 웹뷰 미니앱 Origin은 **2개**
+    | 환경 | Origin |
+    |---|---|
+    | 실제 서비스 | `https://mission-talk.web.tossmini.com` |
+    | 콘솔 QR 테스트 | `https://mission-talk.private-web.tossmini.com` |
+  - `<appName>`은 콘솔 등록값(Step 15에서 `mission-talk`으로 확정)을 그대로 대입
+  - `[중요]` SDK 1~2.x와 3.x의 Origin 도메인이 다름 — 문서/실제 패키지 버전 드리프트(Task 13-2, 13-3, 14-5와 동일 패턴)라 3.x 기준만 채택
+  - 관련 문서: [SDK 3.x 마이그레이션](https://developers-apps-in-toss.toss.im/documentation/integration/sdk-3.x)
+
+- **Task 26-3: `[점검]` 응답 지연 / 통신 실패 안내 규정** `[AGENT 완료 — 판단 기록]`
+  - *"인터랙션 반응이 2초 이상 지연되지 않아요"* — LLM 호출 특성상 2~6초는 구조적으로 불가피(Step 12에서 이미 `⚠️ 판단 보류`로 기록됨). 이번 조치로 **무한 대기는 없어지고 최악의 경우가 유한한 시간 내 에러로 수렴**하므로 상황은 개선되지만, 2초 기준 자체를 충족시키는 건 아님 — 판단 보류 상태 유지
+  - *"서버 통신이 끊기는 경우 알럿 노출 + close 로직 구현 권장"* ([긴급 점검 설정하기](https://developers-apps-in-toss.toss.im/guide/operation/check)) — **프론트엔드 작업 영역**이라 Step 28로 인계
+
+### Step 27: 조치 (백엔드)
+
+*순서는 심각도순: H-1(프로세스 사망) → H-2(무한 대기) → 규정 → 운영 안정성. 각 항목은 독립적으로 되돌릴 수 있게 파일 단위로 분리.*
+
+*구조 결정: 에러 처리·로깅·CORS 같은 "HTTP 경계 관심사"를 라우트/도메인 코드에서 떼어내 `backend/src/http/` 디렉터리로 분리함. 기존 `llm/`(외부 모델 호출), `routes/`(엔드포인트), `store.ts`/`missionCache.ts`(영속성) 구분과 같은 결의 분리라 새 개념을 도입하지 않으면서, 나중에 응답 형식·로그 포맷을 바꿀 때 고칠 파일이 한 곳으로 모임.*
+
+- **Task 27-1: [Backend] async 에러 안전망 — `asyncHandler` + 전역 에러 핸들러 (H-1 해소)** `[AGENT 완료]`
+  - **`asyncHandler`**: async 라우트 핸들러의 rejection을 `next(err)`로 넘겨주는 래퍼. Express 4가 Promise를 안 보는 문제를 라우트마다 try/catch를 덧대는 대신 **한 겹의 래퍼로 구조적으로 차단**함(라우트가 try/catch를 잊어도 안전한 구조가 핵심 — 실수 가능성 자체를 없앰)
+  - **`AppError` + 헬퍼**(`badRequest`/`notFound`/`conflict`/`upstreamFailure`): 라우트가 `res.status().json()`을 직접 만들지 않고 `throw`로 실패를 표현. 응답 형태 결정은 `errorHandler` 한 곳으로 집중됨 → 헬퍼 함수(`sessionGuards.ts`)처럼 `res`에 접근할 수 없는 깊이에서도 실패를 정확히 전달 가능
+  - **`errorHandler`**: 모든 에러 응답의 단일 통로. 예상된 실패(4xx)는 스택 없이, 5xx는 원인(`cause`)까지 로깅. 예상 못 한 예외는 내부 메시지를 감추고 일반 문구로 응답(스키마·자격증명 힌트 유출 방지), 실제 원인은 서버 로그에만
+  - **프로세스 레벨 안전망**: `unhandledRejection`은 **로그만 남기고 프로세스를 유지**(이 서버는 요청 간 공유 인메모리 상태가 사실상 없고 모든 세션 상태가 Supabase에 있음 — 서버를 내려서 다른 사용자 요청까지 끊고 22초 콜드스타트를 유발하는 게 더 큰 피해라고 판단). 반면 `uncaughtException`은 이벤트 루프 상태를 신뢰할 수 없어 로그 후 정상 종료
+  - 관련 파일: [backend/src/http/asyncHandler.ts](backend/src/http/asyncHandler.ts)(신규), [backend/src/http/AppError.ts](backend/src/http/AppError.ts)(신규), [backend/src/http/errorHandler.ts](backend/src/http/errorHandler.ts)(신규), [backend/src/routes/](backend/src/routes/) 5개 전부, [backend/src/index.ts](backend/src/index.ts)
+  - **검증 (Task 25-1과 동일 조건으로 회귀 테스트)**: `SUPABASE_URL`을 존재하지 않는 호스트로 돌려 **실제 DB 장애를 일으킨 상태에서** 요청을 4회 연속 전송
+    - 조치 전: 무응답 + 프로세스 사망(exit 1) / **조치 후: 매번 `500 {"error":"서버 내부 오류가 발생했습니다..."}` 응답, 4회 모두 프로세스 생존, 이후 헬스체크도 정상 200**
+    - 서버 로그에 요청 ID·스택트레이스·소요시간이 남는 것까지 확인
+  - `[불변식]` 앞으로 `router.post("/", async ...)`처럼 async 함수를 **직접** 넘기면 안 됨 — 반드시 `asyncHandler()`로 감쌀 것. (Express 5로 올리면 불필요해지지만 그전까지는 이게 유일한 안전망). grep으로 누락 0건 확인함
+
+- **Task 27-2: [LLM] Anthropic 호출 타임아웃/재시도 정책 명시 (H-2 해소)** `[AGENT 완료]`
+  - `new Anthropic()` → `new Anthropic({ timeout: 30_000, maxRetries: 1 })`
+  - **timeout 10분 → 30초**: 실측 지연이 2~6초 수준이라 30초는 5배 이상 여유. 정상 요청은 안 잘리면서 늘어진 요청은 확실히 끊음
+  - **maxRetries 2 → 1**: 재시도는 일시적 429/5xx 대응에 여전히 유효하지만, 재시도 횟수가 곧 최악 대기시간의 배수임. 사용자가 화면 앞에서 기다리는 대화형 앱이라 "무한 대기보다 빠른 실패"를 택함
+  - 수료증 채점만 `CERTIFICATE_TIMEOUT_MS = 60초`로 개별 상향(요청별 옵션으로 전달) — 7턴 전체 채점 + 총평이라 구조적으로 더 무거움. 실측 7.2초로 여유 충분
+  - **최악 대기시간: 약 30분 → 약 60초** (수료증은 약 120초). 이 값이 Step 28 F-1의 프론트 타임아웃을 정하는 기준이 됨
+  - 관련 파일: [backend/src/llm/client.ts](backend/src/llm/client.ts), [backend/src/llm/certificate.ts](backend/src/llm/certificate.ts)
+  - 검증: 런타임에서 적용값 확인(`timeout=30000, maxRetries=1`) + SDK가 timeout 옵션을 실제로 강제하는지 별도 확인(timeout 1ms 클라이언트로 호출 → 31ms 만에 `APIConnectionTimeoutError`)
+
+- **Task 27-3: [LLM] `max_tokens` 상수화 + 마진 확보 (H-4 예방)** `[AGENT 완료]`
+  - 4개 파일에 흩어져 있던 매직넘버(2000/2000/500/4000)를 `client.ts`의 `MAX_TOKENS` 객체 한 곳으로 모음. **왜 이 값이 응답 길이 제한이 아닌지**(Sonnet 5 적응형 thinking이 같은 예산을 나눠 씀) 주석으로 못박아, Step 7처럼 "응답이 길다 → max_tokens를 줄이자"는 판단이 반복되지 않게 함
+  - `hint`만 500 → 2000으로 상향. 실제 출력은 250 내외라 **과금은 실사용 토큰 기준이므로 비용 영향 없음**, 순수 안전 마진
+  - 관련 파일: [backend/src/llm/client.ts](backend/src/llm/client.ts), [persona.ts](backend/src/llm/persona.ts) / [chat.ts](backend/src/llm/chat.ts) / [hint.ts](backend/src/llm/hint.ts) / [certificate.ts](backend/src/llm/certificate.ts)
+  - 검증: 실제 힌트 API 호출 정상 응답 확인(스페인어, 3.5초)
+
+- **Task 27-4: [Backend] CORS Origin 화이트리스트 (규정, Task 26-2)** `[AGENT 완료]`
+  - `cors()`(전 세계 모든 Origin 허용) → 앱인토스 미니앱 Origin 2개 + (개발 환경에서만) localhost 2개
+  - **Origin 헤더가 없는 요청은 통과**시킴 — CORS는 브라우저 보호 장치라 curl·Render 헬스체크·서버 간 호출을 막을 이유가 없고, 막으면 헬스체크와 운영 점검이 깨짐
+  - **차단 시 경고 로그를 남김** — 앱인토스가 도메인 규칙을 바꿨을 때 "프로덕션에서만 전부 실패"하는 상황의 원인을 로그만 보고 즉시 알 수 있어야 하기 때문
+  - **확장 지점 2개**: `APPS_IN_TOSS_APP_NAME`(appName 변경 시), `ALLOWED_ORIGINS`(쉼표 구분, 비상시 코드 배포 없이 Origin 추가). 규정이 바뀌어도 Render 환경변수만으로 대응 가능
+  - 관련 파일: [backend/src/http/cors.ts](backend/src/http/cors.ts)(신규), [backend/src/index.ts](backend/src/index.ts)
+  - 검증: 실서비스 Origin·QR 테스트 Origin → `Access-Control-Allow-Origin` 정상 반환 / 무관한 Origin → 헤더 없음(브라우저 차단) / Origin 없는 요청 → 200 통과. `NODE_ENV=production` 빌드에서 localhost가 목록에서 빠지는 것까지 확인
+  - ⚠️ **`(USER 액션: 개발 워크플로 영향)`** — 이제 **`vite preview`(localhost:4173)로 배포된 Render 백엔드를 직접 테스트하면 CORS에 막힙니다** (Step 16에서 쓴 검증 방법). 그때는 Render 환경변수에 `ALLOWED_ORIGINS=http://localhost:4173`을 임시로 추가하고 테스트 후 지우세요. 로컬 개발(`npm run dev`)은 Vite 프록시를 타므로 영향 없음
+
+- **Task 27-5: [Backend] graceful shutdown + 404 핸들러** `[AGENT 완료]`
+  - **graceful shutdown**: Render는 재배포·스케일다운 시 SIGTERM을 보냄. 처리하지 않으면 프로세스가 즉시 죽으면서 **처리 중이던 요청이 응답 없이 끊김** — 사용자에겐 이것도 똑같이 "대답이 안 옴"으로 보임. 즉 **배포할 때마다 재현되던 무응답 경로**였음. 새 연결을 닫고 진행 중인 요청을 최대 15초 기다린 뒤 종료(강제 종료 타이머는 `unref()`로 정상 종료를 지연시키지 않게 함)
+  - **404 핸들러**: 없으면 Express 기본 **HTML** 에러 페이지가 나가서, JSON만 기대하는 프론트엔드의 파싱이 깨지고 엉뚱한 에러 메시지가 표시됨
+  - **`trust proxy` 설정**: Render는 리버스 프록시 뒤에 있어서, 이 설정이 없으면 `req.ip`가 프록시 IP로 찍혀 로깅·진단이 어긋남
+  - 관련 파일: [backend/src/index.ts](backend/src/index.ts), [backend/src/http/errorHandler.ts](backend/src/http/errorHandler.ts)
+  - 검증: 실제 SIGTERM 전송 → `[shutdown] SIGTERM 수신 ... 정상 종료 완료` 로그 후 종료 확인 / 없는 경로 요청 → HTML이 아닌 `404 {"error":"경로를 찾을 수 없습니다: ..."}` JSON 확인
+
+- **Task 27-6: [Backend] 요청 로깅 (관측성, Task 25-5 해소)** `[AGENT 완료]`
+  - 요청당 **완료 시점 1줄**만 기록: `[요청ID] METHOD /path → status (소요ms)`. 시작 시점 로그는 안 남김 — Render 무료 티어 로그 보존량이 넉넉하지 않고, 줄 수가 늘면 중요한 신호가 묻힘
+  - 상태코드/지연에 따라 레벨 자동 승격(5xx=error, 4xx 또는 10초 초과=warn) — **조용히 늘어지는 요청**이 로그에서 눈에 띄게 함
+  - **`finish` 없이 `close`가 오면 별도 에러 로그** — Task 25-1에서 겪은 "응답이 영원히 안 감" 부류가 재발하면 여기서 반드시 잡힘. 이번 라운드에서 없앤 버그를 **다시 놓치지 않기 위한 감시선**
+  - 요청 ID는 UUID 앞 8자 — `errorHandler`의 에러 로그와 같은 ID를 쓰므로, 사용자가 "몇 시쯤 안 됐어요"라고만 해도 해당 요청의 상태·소요시간·스택을 한 줄로 엮어서 볼 수 있음
+  - 관련 파일: [backend/src/http/requestLogger.ts](backend/src/http/requestLogger.ts)(신규), [backend/src/index.ts](backend/src/index.ts)
+  - 검증: E2E 17개 요청 전부 정상 기록, `close` 감시선 **오탐 0건** 확인(정상 응답을 실패로 잘못 잡지 않음)
+
+- **Task 27-7: [Backend] 세션 상태 가드 정리** `[AGENT 완료]`
+  - 4개 라우트에 복사되어 있던 세션 조회 + 존재 검증을 `sessionGuards.ts`(`requireSession`/`requireActive`)로 통합. 중복 제거보다 중요한 건 **이 조회가 이제 throw로 실패를 전달**한다는 점 — H-1의 발생 지점이 바로 여기였음
+  - **`[동작 변경]`** 수료증 생성이 **종료된 세션에서만** 가능하도록 제한(진행 중이면 409). 수료증은 한 번 만들면 세션에 영구 저장되고 이후 재조회 시 그대로 반환되므로(Task 13-3), 진행 중에 채점하면 **남은 턴이 영영 반영되지 않은 수료증이 고정**됨. 현재 프론트엔드는 종료 후에만 호출하므로 **실제 동작 영향 없음** — 클라이언트 구현과 무관하게 API가 스스로 불변식을 지키게 하는 방어 코드
+  - 관련 파일: [backend/src/routes/sessionGuards.ts](backend/src/routes/sessionGuards.ts)(신규), [backend/src/routes/](backend/src/routes/) 4개
+  - 검증: 진행 중 세션에 수료증 요청 → `409 {"error":"아직 진행 중인 세션입니다."}` (LLM 호출 없이 0.07초) / 종료 후 요청 → 정상 채점 / 재요청 → 캐시 반환 0.026초
+
+#### 전체 검증 (실제 API + 실제 Supabase, 로컬)
+
+- 스페인어 / medium / "타파스 바 사장님" + "수다스럽고 정 많음" 조합으로 **입력 → 힌트 → 턴1 → 턴2(미션 클리어) → 수료증 → 세션 복원 조회**까지 전 구간 실행
+  - 페르소나 11.8초 / 힌트 3.5초 / 턴 4.9초·4.6초 / 수료증 7.2초 / 수료증 재요청 0.026초(캐시) / 세션 복원 0.043초
+  - 수료증에 5단계 등급·한국어 comment·`overallComment` 총평 전부 정상 포함 확인(Phase 8 회귀 없음)
+- **에러 응답 형태가 조치 전과 완전히 동일**한 것 확인 — 400(Zod flatten 객체) / 404 / 409 / 502 / 500 전부 `{ error: ... }` 유지 → **프론트엔드 수정 불필요**(Step 28 F-4)
+- `tsc --noEmit` 통과, `npm run build` 후 `dist/`에서 `NODE_ENV=production`으로 실제 기동까지 확인 (Render와 동일 경로)
+- 검증에 쓴 테스트 세션·미션 캐시 행은 Supabase에서 전부 삭제함
+
+### Step 28: 프론트엔드 인계 사항 (백엔드 담당 범위 밖)
+
+*이번 라운드는 백엔드만 담당하기로 한 작업이라 프론트 코드는 건드리지 않음. 다만 아래는 백엔드 변경과 짝이 맞아야 완결되는 항목이라 인계용으로 명시.*
+
+- **F-1 `[필수·짝맞춤]` `fetch()` 타임아웃 추가** — Task 27-2로 백엔드는 이제 유한 시간 내에 반드시 응답하거나 에러를 냄. 하지만 **네트워크 자체가 끊기는 경우**(터널 진입, 와이파이 전환 등)는 여전히 프론트 `fetch`가 무한 대기함. `AbortController` + `AbortSignal.timeout()`으로 클라이언트 타임아웃 필요
+  - 대상 파일: [frontend/src/api.ts](frontend/src/api.ts)의 `postJSON`/`getJSON`
+  - 권장값: 백엔드 상한(Task 27-2에서 LLM 60초 + 여유)보다 살짝 길게 잡아야 함 — 짧게 잡으면 정상 처리 중인 요청을 클라이언트가 먼저 끊어버려서 오히려 성공률이 떨어짐
+  - Step 18 Task 18-4의 `[TBD]`와 동일 항목 (그때 다음 라운드 후보로 남겨둔 것)
+- **F-2 `[규정 권장]` 통신 실패 시 안내 + 종료 로직** — Task 26-3 참고. 현재는 에러를 빨간 텍스트로만 표시. Task 14-1에서 만든 자체 `ConfirmModal`을 재사용하면 TDS 없이도 대응 가능
+- **F-3 `[선택]` 콜드스타트 체감 개선** — Task 25-3의 22.6초는 첫 요청에서만 발생. 입력 화면 진입 시점에 `/health`를 미리 한 번 호출해두면(워밍업) 사용자가 실제로 미션을 시작할 때는 이미 인스턴스가 떠 있음. 백엔드는 이미 `/health`를 제공하므로 프론트에서 호출만 하면 됨
+- **F-4 `[정보]` API 응답 형식 변경 없음** — Task 26-1 결론에 따라 기존 응답 스키마를 그대로 유지함. **프론트엔드 수정 불필요**(에러 응답의 `error` 필드 형태도 동일)
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
@@ -580,3 +743,11 @@
 | `/chat/turn` max_tokens | 600 → 2000으로 복원 | Sonnet 5 적응형 thinking이 같은 예산을 나눠 써서 600은 JSON 파싱 크래시 유발 (Step 18) |
 | 미션 생성 캐싱 | (언어, 난이도, 상대방, 성격) 완전일치, 조합당 5개 풀 + 랜덤 서빙, 인메모리 모드는 스킵 | 유사도 매칭 없이도 랜덤 버튼 트래픽에서 자연히 적중 — 자유입력엔 항상 신선한 미션 (Step 19) |
 | DB 마이그레이션 방법 | `supabase db query --linked -f schema.sql` (Management API, 비밀번호 불필요) | `psql` 직접 연결보다 간편, Step 19에서 발견 |
+| **백엔드 async 에러 처리** | **모든 async 라우트는 반드시 `asyncHandler()`로 감쌀 것.** 라우트는 `res.status().json()` 대신 `AppError`를 throw | Express 4는 async rejection을 안 잡음 → 무응답 + **프로세스 사망**이 실제로 발생 (Phase 9 Task 25-1에서 재현) |
+| 백엔드 에러 응답 | 형태 변경 없음 — 전부 `{ error: ... }` 유지. 생성 위치만 `errorHandler` 한 곳으로 집중 | 앱인토스는 자체 백엔드 응답 형식을 강제하지 않음(Task 26-1) → 프론트 계약 유지가 맞음 |
+| LLM 호출 타임아웃 | `timeout: 30초`(수료증만 60초), `maxRetries: 1` | SDK 기본값 10분×3회 = 최악 30분 대기였음. 무한 대기보다 빠른 실패 (Task 27-2) |
+| `max_tokens` 관리 | `client.ts`의 `MAX_TOKENS` 한 곳에서 관리, hint는 500→2000 | Sonnet 5 thinking이 같은 예산을 나눠 써서 "응답 길이 제한"으로 쓰면 안 됨 — 매직넘버 분산이 Step 18 크래시의 배경이었음 |
+| 백엔드 CORS | 전면 개방 → 앱인토스 Origin 화이트리스트(`*.web.tossmini.com` / `*.private-web.tossmini.com`), Origin 없는 요청은 통과 | 앱인토스 규정(SDK 3.x 기준). `ALLOWED_ORIGINS` env로 비상 확장 가능 (Task 27-4) |
+| 백엔드 관측성 | 요청당 완료 1줄 로그(요청ID·상태·소요시간) + `finish` 없는 `close` 감시 | 로그가 전혀 없어서 "가끔 대답이 안 옴"의 원인 추적이 불가능했음 (Task 25-5) |
+| 종료 처리 | SIGTERM graceful shutdown(최대 15초), `unhandledRejection`은 로그 후 생존 / `uncaughtException`은 종료 | 배포마다 in-flight 요청이 끊기던 경로. 이 서버는 공유 인메모리 상태가 없어 rejection 후 생존이 더 안전 (Task 27-1, 27-5) |
+| 수료증 생성 조건 | 종료된 세션에서만 가능(진행 중이면 409) | 수료증은 영구 저장되므로 진행 중 채점 시 남은 턴이 반영 안 된 채 고정됨 (Task 27-7) |

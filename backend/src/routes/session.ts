@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { getSession } from "../store.js";
+import { badRequest } from "../http/AppError.js";
+import { asyncHandler } from "../http/asyncHandler.js";
 import { MAX_USER_TURNS } from "../types.js";
+import { requireSession } from "./sessionGuards.js";
 
 const router = Router();
 
@@ -9,25 +11,25 @@ const ParamsSchema = z.object({
   sessionId: z.string().uuid(),
 });
 
-router.get("/:sessionId", async (req, res) => {
-  const parsed = ParamsSchema.safeParse(req.params);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
+router.get(
+  "/:sessionId",
+  asyncHandler(async (req, res) => {
+    const parsed = ParamsSchema.safeParse(req.params);
+    if (!parsed.success) {
+      throw badRequest(parsed.error.flatten());
+    }
 
-  const session = await getSession(parsed.data.sessionId);
-  if (!session) {
-    return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
-  }
+    const session = await requireSession(parsed.data.sessionId);
 
-  res.json({
-    persona: session.persona,
-    turns: session.turns,
-    turnNumber: session.turns.length,
-    maxTurns: MAX_USER_TURNS,
-    ended: session.endedReason,
-    certificate: session.certificate,
-  });
-});
+    res.json({
+      persona: session.persona,
+      turns: session.turns,
+      turnNumber: session.turns.length,
+      maxTurns: MAX_USER_TURNS,
+      ended: session.endedReason,
+      certificate: session.certificate,
+    });
+  }),
+);
 
 export default router;

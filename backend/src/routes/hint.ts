@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
+import { badRequest, upstreamFailure } from "../http/AppError.js";
+import { asyncHandler } from "../http/asyncHandler.js";
 import { generateHint } from "../llm/hint.js";
-import { getSession } from "../store.js";
+import { requireActive, requireSession } from "./sessionGuards.js";
 
 const router = Router();
 
@@ -9,27 +11,27 @@ const RequestSchema = z.object({
   sessionId: z.string().uuid(),
 });
 
-router.post("/", async (req, res) => {
-  const parsed = RequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
+router.post(
+  "/",
+  asyncHandler(async (req, res) => {
+    const parsed = RequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw badRequest(parsed.error.flatten());
+    }
 
-  const session = await getSession(parsed.data.sessionId);
-  if (!session) {
-    return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
-  }
-  if (session.endedReason) {
-    return res.status(409).json({ error: "이미 종료된 세션입니다." });
-  }
+    const session = requireActive(await requireSession(parsed.data.sessionId));
 
-  try {
-    const hint = await generateHint(session);
+    // try 범위는 외부 API 호출로만 좁힌다 — res.json()까지 감싸면 응답 직렬화 오류가
+    // "힌트 생성 실패(502)"로 잘못 보고돼서 원인 추적이 어긋난다.
+    let hint: Awaited<ReturnType<typeof generateHint>>;
+    try {
+      hint = await generateHint(session);
+    } catch (err) {
+      throw upstreamFailure("힌트 생성에 실패했습니다.", err);
+    }
+
     res.json(hint);
-  } catch (err) {
-    console.error(err);
-    res.status(502).json({ error: "힌트 생성에 실패했습니다." });
-  }
-});
+  }),
+);
 
 export default router;

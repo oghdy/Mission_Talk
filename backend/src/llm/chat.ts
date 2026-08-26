@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic, MODEL } from "./client.js";
+import { anthropic, MAX_TOKENS, MODEL } from "./client.js";
 import type { Session } from "../types.js";
 
 const TurnResultSchema = z.object({
@@ -46,12 +46,9 @@ export async function processTurn(
 
   const response = await anthropic.messages.parse({
     model: MODEL,
-    // Sonnet 5는 기본적으로 적응형 thinking이 켜져 있고, 이 thinking 토큰도 max_tokens
-    // 예산을 같이 씀. 600으로 좁혀뒀더니(Step 7) 사고 과정이 길어지는 경우 JSON이
-    // 중간에 잘려서 파싱 에러가 났음(실사용 중 발견, 특히 스페인어에서 재현).
-    // 응답 길이 자체는 위 system 지시(1~3문장)로 이미 통제되므로, max_tokens는
-    // thinking 여유분을 감안해 넉넉하게 둠 — 폭주 방지용 하드 캡 목적이 아님.
-    max_tokens: 2000,
+    // 응답 길이는 위 system 지시(1~3문장)가 통제하고, max_tokens는 thinking 여유분을
+    // 포함한 안전 상한으로만 쓴다 — 자세한 근거는 client.ts의 MAX_TOKENS 주석 참고.
+    max_tokens: MAX_TOKENS.chat,
     system,
     messages: [...history, { role: "user", content: userText }],
     output_config: { format: zodOutputFormat(TurnResultSchema), effort: "medium" },

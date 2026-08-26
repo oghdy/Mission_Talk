@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic, MODEL } from "./client.js";
+import { anthropic, MAX_TOKENS, MODEL } from "./client.js";
 import type { Difficulty, Session } from "../types.js";
 
 // persona.ts의 DIFFICULTY_LABEL과는 관점이 다름 — 저건 "상대방이 어떻게 말하는지",
@@ -26,7 +26,7 @@ export async function generateHint(
 
   const response = await anthropic.messages.parse({
     model: MODEL,
-    max_tokens: 500,
+    max_tokens: MAX_TOKENS.hint,
     system:
       "당신은 외국어 회화 연습 앱의 학습 도우미입니다. 정답을 그대로 떠먹여주기보다, 사용자가 " +
       "다음 턴에 말하면 미션 진행에 도움이 될 만한 자연스러운 예문을 대상 언어로 제안하세요. " +

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic, MODEL } from "./client.js";
+import { anthropic, MAX_TOKENS, MODEL } from "./client.js";
 import type { Difficulty, Language, Persona } from "../types.js";
 
 const LANGUAGE_LABEL: Record<Language, string> = {
@@ -34,7 +34,7 @@ export async function generatePersonaAndMission(input: {
 }): Promise<Persona> {
   const response = await anthropic.messages.parse({
     model: MODEL,
-    max_tokens: 2000,
+    max_tokens: MAX_TOKENS.persona,
     system:
       "당신은 외국어 회화 연습 미니앱 '미션톡'의 시나리오 생성기입니다. " +
       "사용자가 입력한 상대방 역할과 성격을 바탕으로, 최대 7턴 안에 클리어할 수 있는 " +

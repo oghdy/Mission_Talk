@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
+import { badRequest, upstreamFailure } from "../http/AppError.js";
+import { asyncHandler } from "../http/asyncHandler.js";
 import { generatePersonaAndMission } from "../llm/persona.js";
 import { getCachedMission, saveMissionToCache } from "../missionCache.js";
 import { createSession } from "../store.js";
@@ -16,31 +18,41 @@ const RequestSchema = z.object({
   userKey: z.string().min(1).max(200).nullish(),
 });
 
-router.post("/", async (req, res) => {
-  const parsed = RequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
+router.post(
+  "/",
+  asyncHandler(async (req, res) => {
+    const parsed = RequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw badRequest(parsed.error.flatten());
+    }
 
-  const { language, role, personality, difficulty, userKey } = parsed.data;
-
-  try {
+    const { language, role, personality, difficulty, userKey } = parsed.data;
     const cacheKey = { language, difficulty, role, personality };
+
+    // 캐시 조회/저장은 fail-open으로 이미 설계돼 있어(missionCache.ts) 여기서 별도 방어 불필요.
     const cached = await getCachedMission(cacheKey);
-    const persona = cached ?? (await generatePersonaAndMission({ language, role, personality, difficulty }));
-    if (!cached) {
+
+    let persona = cached;
+    if (!persona) {
+      try {
+        persona = await generatePersonaAndMission({ language, role, personality, difficulty });
+      } catch (err) {
+        throw upstreamFailure("페르소나 생성에 실패했습니다.", err);
+      }
       await saveMissionToCache(cacheKey, persona);
     }
 
-    const session = await createSession({ language, role, personality, difficulty, persona, userKey });
-    res.json({
-      sessionId: session.id,
+    const session = await createSession({
+      language,
+      role,
+      personality,
+      difficulty,
       persona,
+      userKey,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(502).json({ error: "페르소나 생성에 실패했습니다." });
-  }
-});
+
+    res.json({ sessionId: session.id, persona });
+  }),
+);
 
 export default router;
