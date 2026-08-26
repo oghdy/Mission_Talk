@@ -29,6 +29,8 @@ export interface CertificateTurn {
 export interface Certificate {
   turns: CertificateTurn[];
   missionCleared: boolean;
+  // optional: Phase 8 이전에 생성돼 캐시된 수료증엔 이 필드가 없음
+  overallComment?: string;
 }
 
 export interface Hint {

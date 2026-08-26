@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getHint, sendTurn } from "../api";
+import { PixelHintIcon } from "../components/PixelHintIcon";
 import type { ChatMessage, ChatTurnRecord, Hint, Persona } from "../types";
 
 function buildInitialMessages(persona: Persona, initialTurns: ChatTurnRecord[]): ChatMessage[] {
@@ -74,9 +75,11 @@ export function ChatScreen({
     <div className="screen chat-screen">
       <div className="chat-header">
         <p className="mission-goal">{persona.missionGoal}</p>
-        <span className="turn-counter">
-          {turnNumber} / {maxTurns} 턴
-        </span>
+        <div className="turn-gauge" role="img" aria-label={`${turnNumber} / ${maxTurns} 턴`}>
+          {Array.from({ length: maxTurns }, (_, i) => (
+            <span key={i} className={`turn-gauge-block ${i < turnNumber ? "filled" : ""}`} />
+          ))}
+        </div>
       </div>
 
       <div className="message-list">
@@ -104,7 +107,13 @@ export function ChatScreen({
           onClick={handleHint}
           disabled={hintLoading || sending}
         >
-          {hintLoading ? "..." : "💡 힌트"}
+          {hintLoading ? (
+            "..."
+          ) : (
+            <>
+              <PixelHintIcon /> 힌트
+            </>
+          )}
         </button>
         <input
           value={input}

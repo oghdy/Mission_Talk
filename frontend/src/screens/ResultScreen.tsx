@@ -3,6 +3,15 @@ import { generateCertificate } from "../api";
 import { shareProvider } from "../lib/share";
 import type { Certificate, Persona } from "../types";
 
+// 신호등식 그라데이션 — 좋은 등급(초록)에서 나쁜 등급(빨강)까지 (Phase 8 Task 23-3)
+const GRADE_COLOR_VAR: Record<string, string> = {
+  "완벽해요": "var(--grade-excellent)",
+  "잘했어요": "var(--primary)",
+  "그럭저럭이에요": "var(--text-dim)",
+  "아쉬워요": "var(--arcade-accent)",
+  "헉...": "var(--danger)",
+};
+
 function buildShareMessage(persona: Persona, ended: "cleared" | "max_turns"): string {
   return ended === "cleared"
     ? `미션톡에서 "${persona.missionGoal}" 미션을 클리어했어요! 나도 외국어로 롤플레잉 미션 도전해보기 🎯`
@@ -49,12 +58,15 @@ export function ResultScreen({
 
   return (
     <div className="screen result-screen">
-      <h1>{ended === "cleared" ? "미션 클리어!" : "미션 실패"}</h1>
+      <h1 className={ended === "cleared" ? "mission-clear-title" : undefined}>
+        {ended === "cleared" ? "미션 클리어!" : "미션 실패"}
+      </h1>
       <p className="subtitle">
         {ended === "cleared"
           ? "수고하셨어요! 아래에서 턴별 평가를 확인해보세요."
           : "7턴 안에 미션을 달성하지 못했어요. 다시 도전해보세요."}
       </p>
+      <p className="mission-goal">{persona.missionGoal}</p>
 
       {error && <p className="error">{error}</p>}
 
@@ -62,10 +74,18 @@ export function ResultScreen({
 
       {certificate && (
         <div className="certificate">
+          {certificate.overallComment && (
+            <div className="certificate-summary">
+              <p className="certificate-summary-label">총평</p>
+              <p>{certificate.overallComment}</p>
+            </div>
+          )}
           {certificate.turns.map((t, i) => (
             <div key={i} className="certificate-turn">
               <p className="user-text">{t.userText}</p>
-              <p className="grade">{t.grade}</p>
+              <p className="grade" style={{ color: GRADE_COLOR_VAR[t.grade] ?? "var(--primary)" }}>
+                {t.grade}
+              </p>
               {t.comment && <p className="comment">{t.comment}</p>}
             </div>
           ))}

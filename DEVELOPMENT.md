@@ -435,9 +435,9 @@
 
 ---
 
-## Phase 7: 아케이드 톤 UI 조미료 (계획만, 착수 전) `[전체 TBD]`
+## Phase 7: 아케이드 톤 UI 조미료 `[AGENT 완료]`
 
-*배경: Step 15에서 다시 만든 로고(말풍선+체크마크, 픽셀아트 톤, `#4f7cff`)가 예상보다 잘 나와서, 사용자가 "이 로고 느낌을 앱 전체 UI에도 아주 살짝만" 반영하고 싶다고 제안. 본인 표현으로 "조미료로 쓰는 느낌 — 전부 다 아케이드 게임처럼 바꾸는 게 아니라". 아직 코드 변경 없이 **계획만 상세히 기록**해두는 단계 — 착수는 다음 지시를 기다림.*
+*배경: Step 15에서 다시 만든 로고(말풍선+체크마크, 픽셀아트 톤, `#4f7cff`)가 예상보다 잘 나와서, 사용자가 "이 로고 느낌을 앱 전체 UI에도 아주 살짝만" 반영하고 싶다고 제안. 본인 표현으로 "조미료로 쓰는 느낌 — 전부 다 아케이드 게임처럼 바꾸는 게 아니라". Task 20-1~20-6 전부 순서대로 착수해 완료.*
 
 ### 설계 원칙 (반드시 지킬 가드레일)
 
@@ -447,28 +447,105 @@
   - 전체 레이아웃 구조 — Step 13 A-1에서 통과시킨 라이트 모드 규약, 체크리스트 대응 요소(뒤로가기, 확대축소 차단 등)는 그대로 유지
   - 미니앱 용량/속도 — 명세서 9절 비기능 요구사항(WebView 성능). 이미지 에셋 추가 최소화하고 순수 CSS(클립패스, box-shadow 등)로 구현하는 걸 우선 검토할 것 — Step 14에서 TDS(무거운 외부 디자인 시스템) 붙였다가 빼버린 전례가 있어서, 이번에도 무거운 라이브러리 추가 없이 가는 게 원칙과 맞음
 
-### 후보 작업 목록 (전부 `[TBD]`, 순서는 임팩트 대비 작업량 기준 추천)
+### 후보 작업 목록 (순서는 임팩트 대비 작업량 기준 추천)
 
-- **Task 20-1: 디자인 토큰 확장**
-  - `styles.css`의 `:root`에 `--arcade-accent`(강조색, 로고의 파랑과 어울리는 보조색 후보), 픽셀 테두리 두께용 변수 추가 — 기존 `--bg`/`--surface`/`--primary` 패턴과 동일하게 토큰화해서 나중에 값만 바꿔도 전체에 반영되게
-  - 숫자·영문 라벨 전용 픽셀 폰트 후보: Google Fonts "Press Start 2P" (8비트 감성의 대표 폰트, 라틴 문자·숫자만 지원) — `font-family` fallback 체인에 기존 산세리프를 반드시 유지하고, 특정 클래스에만 스코프해서 CJK 텍스트가 실수로 이 폰트를 타지 않게 할 것
-- **Task 20-2: 버튼/카드 모서리를 각진 픽셀 스타일로**
-  - 둥근 `border-radius` 대신 계단식(stepped) 모서리 — `clip-path: polygon(...)`로 순수 CSS 구현(이미지 에셋 불필요, 성능 부담 없음)
-  - 적용 후보: `button.primary`, `button.secondary`, `.bubble`, `.certificate-turn`, `.modal-card`
-- **Task 20-3: 턴 카운터를 텍스트 대신 픽셀 프로그레스 바로**
-  - 지금 `0 / 7 턴` 텍스트를 7칸짜리 블록 게이지로 (진행된 턴만큼 칸이 채워지는 방식) — 순수 div + CSS로, 이미지 없이
-  - 관련 파일: [frontend/src/screens/ChatScreen.tsx](frontend/src/screens/ChatScreen.tsx)
-- **Task 20-4: "미션 클리어!" 연출 강화**
-  - 결과 화면 진입 시 CSS `@keyframes`로 짧은 펄스/반짝임 애니메이션 — 레트로 게임의 "클리어" 연출 느낌
+- **Task 20-1: 디자인 토큰 확장** `[AGENT 완료]`
+  - `styles.css`의 `:root`에 `--arcade-accent: #ffb703`(로고 파랑 `#4f7cff`와 대비되는 앰버 보조색), `--pixel-border-width: 3px` 추가 — 기존 `--bg`/`--surface`/`--primary` 패턴과 동일하게 토큰화해서 나중에 값만 바꿔도 전체에 반영되게 함
+  - ~~숫자·영문 라벨 전용 픽셀 폰트(Google Fonts "Press Start 2P")~~ → **Step 21 규정 점검에서 제거함**(아래 참고)
+  - 관련 파일: [frontend/index.html](frontend/index.html), [frontend/src/styles.css](frontend/src/styles.css)
+  - 검증: `npm run dev` 브라우저에서 `getComputedStyle`로 `--arcade-accent`/`--pixel-border-width` 값 정상 반영 확인, 콘솔 에러 없음 + 기존 화면 렌더링 회귀 없음(스크린샷 확인)
+- **Task 20-2: 버튼/카드 모서리를 각진 픽셀 스타일로** `[AGENT 완료]`
+  - 둥근 `border-radius` 대신 2단 계단식(stepped) 모서리 — `clip-path: polygon(...)`로 순수 CSS 구현(이미지 에셋 불필요, 성능 부담 없음), 계단 한 칸 크기는 Task 20-1의 `--pixel-border-width`(3px) 토큰 재사용
+  - 적용: `button.primary`, `button.secondary`, `.bubble`, `.certificate-turn`, `.modal-card`
+  - `.modal-card`(바텀시트)는 아래쪽이 화면 끝과 맞닿아 있어서 위쪽 두 모서리만 계단식으로 깎는 별도 polygon 사용(4모서리 다 깎으면 하단 노치 틈으로 오버레이가 비쳐 보이는 문제 있어서 분리)
+  - 각 셀렉터에 원래 있던 개별 `border-radius`(10px/14px 등)는 전부 제거해 충돌 없앰
+  - 관련 파일: [frontend/src/styles.css](frontend/src/styles.css)
+  - 검증: 브라우저에서 `getComputedStyle`로 각 요소의 `clip-path`/`border-radius` 실제 계산값 확인, 임시 DOM 주입으로 카드/모달 렌더링 시각 확인(테스트 후 제거)
+- **Task 20-3: 턴 카운터를 텍스트 대신 픽셀 프로그레스 바로** `[AGENT 완료]`
+  - `{turnNumber} / {maxTurns} 턴` 텍스트를 `maxTurns`칸짜리 블록 게이지로 교체(진행된 턴만큼 `--arcade-accent` 색으로 채워짐) — 순수 `<span>` + CSS, 이미지 없음
+  - 텍스트 정보는 스크린리더용으로 게이지 컨테이너의 `aria-label`에 유지(`role="img"`)
+  - 관련 파일: [frontend/src/screens/ChatScreen.tsx](frontend/src/screens/ChatScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)(`.turn-counter` → `.turn-gauge`/`.turn-gauge-block`)
+  - 검증: 브라우저에서 3/7 상태로 임시 렌더 → 채워진 3칸 + 빈 4칸 시각 확인
+- **Task 20-4: "미션 클리어!" 연출 강화** `[AGENT 완료]`
+  - 미션 클리어(`ended === "cleared"`) 시에만 `.mission-clear-title` 클래스 부여 — 스케일 팝인(`mission-clear-pop`) 후 `--arcade-accent` 글로우가 2회 깜빡이는 `@keyframes` 애니메이션(레트로 게임 "클리어" 연출 느낌). 실패 화면에는 미적용
+  - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)
+  - 검증: 브라우저에서 애니메이션 재생 확인 — 팝인 직후 프레임(반투명/축소)과 2초 후 정착 프레임(불투명/원색) 스크린샷 비교로 정상 재생 확인
+- **Task 20-5: 힌트 버튼(💡) 아이콘을 블록/픽셀 아이콘으로 교체** `[AGENT 완료]`
+  - 이모지 대신 인라인 SVG 픽셀 벌브 아이콘(8개 `<rect>`, `shapeRendering="crispEdges"`, `--arcade-accent` 색) — 이미지 에셋 파일 추가 없이 코드로만 구현
+  - 관련 파일: [frontend/src/components/PixelHintIcon.tsx](frontend/src/components/PixelHintIcon.tsx)(신규), [frontend/src/screens/ChatScreen.tsx](frontend/src/screens/ChatScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)(`.hint-button` flex 정렬, `.pixel-hint-icon`)
+  - 검증: 브라우저에서 힌트 버튼 렌더링 확인, 콘솔 에러 없음
+- **Task 20-6 (선택, 검토만): 입력 화면 상단에 로고 배치** `[AGENT 완료 — 실제로 넣어보고 채택]`
+  - 원본 로고(`assets/mission_talk_logo_600.png`)를 `sips`로 96px로 리사이즈(5KB)해서 `frontend/src/assets/logo_96.png`로 추가, 입력 화면 헤더에 40×40으로 배치
+  - 판단: 실제로 넣어보니 화면이 복잡해지지 않고 브랜드 일관성만 살아서 채택. 카드/제목과 안 겹치고 여백 안에 자연스럽게 들어감
+  - 관련 파일: [frontend/src/assets/logo_96.png](frontend/src/assets/logo_96.png)(신규), [frontend/src/screens/InputScreen.tsx](frontend/src/screens/InputScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)(`.input-screen-logo`)
+  - 검증: 브라우저 스크린샷으로 실제 배치 확인, 콘솔 에러 없음
+
+### Step 21: 아케이드 UI 조미료 규정 재점검 (apps-in-toss-docs MCP 기준)
+
+*배경: Phase 7 구현 완료 후, 사용자 요청으로 실제 앱인토스 공식 문서 MCP(`apps-in-toss-docs`)의 "비게임 출시 가이드"/"UI/UX 가이드"를 다시 조회해서 Task 20-1~20-6이 규정에 맞는지 재검증.*
+
+- **Task 21-1: [점검] Google Fonts CDN 로드가 죽은 코드였던 것 발견 + 제거** `[AGENT 완료]`
+  - Task 20-1에서 턴 카운터·버튼 라벨용으로 "Press Start 2P"(Google Fonts)를 로드해뒀는데, Task 20-3에서 턴 카운터 텍스트 자체를 블록 게이지로 교체하면서 이 폰트를 실제로 쓰는 곳이 없어짐(나머지 텍스트는 전부 이 폰트가 지원 안 하는 한글). 문서("빌드 커스터마이징" 가이드)도 CDN 리소스 로드는 네트워크 의존성 때문에 비권장한다고 명시 — 아무 데도 안 쓰면서 외부 CDN 의존만 남기는 건 리스크만 있고 이득이 없어 제거
+  - 관련 파일: [frontend/index.html](frontend/index.html)(Google Fonts `<link>` 제거), [frontend/src/styles.css](frontend/src/styles.css)(`.pixel-label` 미사용 클래스 제거)
+  - 검증: `tsc --noEmit` + `vite build` 통과, 브라우저 재확인 — 콘솔 에러 없음, 렌더링 회귀 없음
+- **Task 21-2: [점검] 나머지 항목은 규정 위반 없음으로 확인, 판단 보류 2건 기록** `[AGENT 완료 — 코드 변경 없음]`
+  - ✅ 픽셀 모서리(`clip-path`, Task 20-2): "그래픽 스타일 일관성"(손그림/만화 화풍 지양) 규정은 일러스트·이미지 리소스에 대한 것이라 버튼/카드 모서리 형태와는 무관 — 저촉 없음
+  - ✅ 로고 배치(Task 20-6): 문서상 로고 노출 위치 규정(전체탭/혜택탭/푸시/내비/브릿지)은 별도 통합 지점 얘기고, 화면 내부 배치를 금지하는 조항 없음. 로고 파일 자체는 이미 Step 15에서 "600×600 각진 정사각형" 규정 충족 확인됨
+  - ✅ `--arcade-accent`(#ffb703, Task 20-1/20-3/20-4에서 사용): `apps-in-toss.config.ts`에 등록된 실제 브랜드 컬러(`brand.primaryColor` = `#4f7cff`)를 건드리지 않은 순수 내부 UI 강조색이라 브랜드 컬러 규정과 무관
+  - ⚠️ `[TBD]` 미션 클리어 글로우 애니메이션(Task 20-4): UI/UX 가이드의 "장식적인 효과·이펙트(파티클, 과한 그라데이션 등) 금지" 조항과 완전히 무관하다고 단정하긴 어려움 — 파티클/그라데이션은 아니고 실제 성공 상태를 알리는 짧은 text-shadow 깜빡임이라 취지상 문제없다고 판단했지만, 심사 시 재검토 여지는 있음
+  - ⚠️ `[TBD]` 힌트 아이콘 크기(Task 20-5): 문서의 "아이콘은 24~40px로 사용" 기준은 토스 제공 아이콘 세트에 대한 문구라 직접 제작 아이콘에 강제 적용되는지 불명확. 현재 12×16px로 그 범위보다 작음 — 버튼 내부 보조 아이콘이라 실사용상 문제 없어 보이지만 참고용으로 남겨둠
+  - 관련 문서: [비게임 출시 가이드](https://developers-apps-in-toss.toss.im/checklist/app-nongame), [UI/UX 가이드](https://developers-apps-in-toss.toss.im/design/consumer-ux-guide)
+
+### 남은 것
+
+- Task 20-6에서 넣기로 한 로고가 실기기/실 WebView에서도 자연스러운지는 QR 테스트로 재확인 필요(브라우저 검증만 됨)
+- Step 21에서 `[TBD]`로 남긴 2건(클리어 글로우 애니메이션, 힌트 아이콘 크기)은 실제 심사 결과가 나오기 전까진 확정 판단 불가
+
+---
+
+## Phase 8: 수료증 개선 `[AGENT 완료]`
+
+*배경: 사용자가 실제로 미션을 클리어해서 수료증 화면을 받아보고, 개발 문서·앱 전체 구조를 다시 학습한 뒤 개선점이 있으면 얘기해달라고 요청. 코드(`ResultScreen.tsx`, `certificate.ts`, `types.ts`)를 다시 읽어 실제로 비어있는 부분 3가지를 확인함:*
+1. *백엔드 `CertificateSchema`가 턴별 `{userText, grade, comment}`만 반환하고, 미션 전체에 대한 총평 필드 자체가 없음 — 화면도 턴 카드 나열로 끝나서 "수료증"치고 완결감이 약함*
+2. *`ResultScreen`에 `persona.missionGoal`이 prop으로 들어오는데도 공유 문구에만 쓰이고 화면엔 렌더링이 안 돼서, 사용자가 결과 화면만 보고는 자기가 뭘 완료했는지 확인할 방법이 없음*
+3. *`.certificate-turn .grade`가 등급 값과 무관하게 전부 `--primary` 파란색 하나로 렌더링돼서, "완벽해요"와 "헉..."이 스캔했을 때 시각적으로 구분이 안 됨*
+
+*세 항목 다 사용자 승인 받아 반영 착수.*
+
+*색상 팔레트는 착수 전 사용자에게 3가지 안(신호등식 그라데이션 / 2단계만 구분 / 직접 지정)을 제시해 확인받음 — "신호등식 그라데이션으로 진행" + "모든 작업을 앱인토스 MCP 규정에 맞게 진행" 확답 받고 착수.*
+
+### Step 22: 백엔드 — 총평 필드 추가
+
+- **Task 22-1: [LLM] `CertificateSchema`에 `overallComment` 필드 추가** `[AGENT 완료]`
+  - 기존 턴별 채점과 같은 LLM 호출에서 함께 생성(별도 호출 비용 없음) — 미션 전체에 대한 2~3문장 총평을 한국어·해요체로, "잘한 점 먼저 + 격려하는 톤으로 개선점" 순서로 쓰도록 시스템 프롬프트에 명시(토스 UX 라이팅 가이드의 "부정적 커뮤니케이션 최소화" 원칙 반영 — 아래 Task 24-1 참고)
+  - 관련 파일: [backend/src/llm/certificate.ts](backend/src/llm/certificate.ts), [backend/src/types.ts](backend/src/types.ts), [frontend/src/types.ts](frontend/src/types.ts)
+  - 검증: 실제 API 호출(easy 난이도, 카페 주문)로 확인 — `overallComment: "주문 문장을 정말 자연스럽고 완벽하게 말했어요! ... 이제 매장에서 먹을지 포장할지까지 말하면 미션을 완벽하게 마무리할 수 있을 거예요."` 정상 반환, 격려 톤 확인. 테스트 세션은 Supabase에서 삭제
+- **Task 22-2: [Backend] 기존에 캐시된(총평 없는) 수료증 호환 처리** `[AGENT 완료]`
+  - Task 13-3에서 세션에 영구 저장해둔 기존 수료증 데이터는 이 필드가 없는 채로 DB에 남아있음 — 타입을 `overallComment?: string`(optional)로 두고 프론트에서 값 있을 때만 렌더링, 없어도 에러 없이 기존 화면처럼 보이게(fail-open)
+  - 관련 파일: [backend/src/types.ts](backend/src/types.ts), [frontend/src/types.ts](frontend/src/types.ts)
+
+### Step 23: 프론트엔드 — 결과 화면 개선
+
+- **Task 23-1: [Frontend] 결과 화면에 미션 목표 표시** `[AGENT 완료]`
+  - `ChatScreen`에서 쓰던 `.mission-goal` 클래스 그대로 재사용(새 스타일 추가 없음)
   - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx)
-- **Task 20-5: 힌트 버튼(💡) 아이콘을 블록/픽셀 아이콘으로 교체**
-  - 이모지 대신 작은 픽셀 아이콘(SVG 또는 CSS로 직접 그리기) — 우선순위 낮음, 위 4개 반영 후 여유 있으면
-- **Task 20-6 (선택, 검토만): 입력 화면 상단에 로고 배치**
-  - 지금은 로고가 앱 아이콘으로만 쓰이고 화면 안에는 없음 — 입력 화면 헤더에 작게 넣으면 브랜드 일관성이 더 살 수 있음. 다만 화면이 복잡해질 수 있어 실제로 넣어보고 판단 필요
+- **Task 23-2: [Frontend] 총평 카드 렌더링** `[AGENT 완료]`
+  - `overallComment` 있을 때만 턴별 카드 목록 위에 강조 카드(`.certificate-summary`)로 표시(Task 22-2의 하위호환 조건과 짝) — `.hint-box`와 동일한 primary 톤 배경, Task 20-2 픽셀 모서리 그룹에도 포함시켜 다른 카드들과 형태 통일
+  - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)
+- **Task 23-3: [Frontend] 등급별 색상 구분(신호등식)** `[AGENT 완료]`
+  - 완벽해요=`--grade-excellent`(신규 초록), 잘했어요=`--primary`(기존 파랑), 그럭저럭이에요=`--text-dim`(기존 회색), 아쉬워요=`--arcade-accent`(기존 앰버), 헉...=`--danger`(신규 토큰화, 기존 `.error` 빨강과 값 통일)
+  - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx), [frontend/src/styles.css](frontend/src/styles.css)
+  - 검증: 5단계 전부 임시 DOM 주입으로 실제 색상 렌더링 확인(초록→파랑→회색→앰버→빨강 그라데이션 육안 확인), `tsc --noEmit` + `vite build` 통과, 콘솔 에러 없음
 
-### 다음 단계
+### Step 24: 앱인토스 MCP 규정 확인
 
-사용자가 "지금 시작"이라고 명시하면 Task 20-1부터 순서대로 진행. 그 전까지는 이 계획만 유지하고 코드는 건드리지 않음.
+*사용자가 착수 전에 "모든 작업을 앱인토스 MCP 규정에 맞게 진행"을 명시적으로 요청 — 색상 신호등 표시와 총평 기능이 UX 라이팅 가이드와 충돌하지 않는지 사전 확인.*
+
+- **Task 24-1: [점검] "부정적 커뮤니케이션 최소화" 원칙과의 충돌 여부 확인** `[AGENT 완료 — 문제 없음, 설계에 반영]`
+  - `askQuestion`으로 확인: 점수/등급 신호등 색상 표시 자체를 금지하는 조항은 없음. 다만 [UI/UX 가이드](https://developers-apps-in-toss.toss.im/design/consumer-ux-guide)의 "그래픽" 섹션에 "부정적이거나 호소하는 감정 표현은 피하라"는 원칙이 있어, 낮은 등급의 **텍스트/톤**이 여기 걸리지 않게 두 가지로 반영함
+    1. 색상 외에 별도의 경고 아이콘·느낌표 등 시각 요소는 추가하지 않음(텍스트 색상만 다르게, Task 23-3)
+    2. `overallComment` 프롬프트에 "잘한 점을 먼저 짚고 낙담시키지 않는 톤으로" 명시(Task 22-1)
+  - 관련 문서: [UI/UX 가이드](https://developers-apps-in-toss.toss.im/design/consumer-ux-guide)
 
 ---
 
@@ -485,7 +562,7 @@
 | 가드레일 | 추가 필터링 레이어 없음, 프롬프트 지시만 유지 | 자유입력의 예측불가성이 재미 요소라는 판단 |
 | 앱인토스 SDK | Phase 5로 분리. Step 12 감사 항목 중 A/B군 전부 완료(Step 13, 14, 15). 콘솔 등록 완료(miniAppId 68657, 심사 중). 남은 건 심사 결과 대기, TDS 대체 검토 | 코드만으로 완결 안 되고 외부 SDK 접근 필요 |
 | 로고 | 말풍선+체크마크 픽셀아트, `#4f7cff`(앱 primary와 동일), 600×600 | Step 15 — 앱 이름("톡"+"미션 클리어")을 아이콘 하나로 표현 |
-| 아케이드 UI 조미료 | 계획만 문서화, 착수 전 | Phase 7 — 텍스트 폰트·레이아웃 구조는 안 건드리고 테두리/게이지/연출 위주로만 |
+| 아케이드 UI 조미료 | 완료(Task 20-1~20-6). 디자인 토큰(`--arcade-accent`/`--pixel-border-width`), 버튼·카드·모달 계단식 모서리, 턴 게이지, 클리어 연출, 픽셀 힌트 아이콘, 입력화면 로고 | Phase 7 — 텍스트 폰트·레이아웃 구조는 안 건드리고 테두리/게이지/연출 위주로만 |
 | UI 테마 | 라이트 모드로 전환 완료 (Step 13 Task 13-5) | 비게임 출시 가이드 "미니앱 테마는 라이트 모드로 구현돼 있어요" (Step 12 A-1) |
 | 사용자 식별키 | `User.getAnonymousKey()` + 로컬 dev 폴백(`FallbackIdentityProvider`) | 문서의 `getAnonymousKey()`는 v3.0.5에서 deprecated, `User.getAnonymousKey()`가 현행 API |
 | 세션 재접속 | 클라이언트는 `sessionId`만 보관, 재진입 시 서버에서 최신 상태 재조회(`GET /chat/session/:id`) | 클라이언트-서버 상태 불일치 방지, 수료증도 캐시되어 재채점 없음 |

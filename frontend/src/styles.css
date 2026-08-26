@@ -8,6 +8,15 @@
   --text: #16181d;
   --text-dim: #6b7280;
   --border: #e2e4e9;
+  /* 아케이드 톤 UI 조미료(Phase 7, Task 20-1) — 로고(#4f7cff, 픽셀아트 톤)와
+     어울리는 보조 강조색 + 픽셀 테두리 두께 토큰. --bg/--surface/--primary와
+     동일하게 :root에 토큰화해서 나중에 값만 바꿔도 전체에 반영되게 함. */
+  --arcade-accent: #ffb703;
+  --pixel-border-width: 3px;
+  /* 수료증 등급 신호등 그라데이션(Phase 8 Task 23-3)용 토큰.
+     --danger는 기존 .error 텍스트 색과 통일 — 별도 하드코딩 없이 하나로 관리. */
+  --grade-excellent: #22b573;
+  --danger: #ff6b6b;
   font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
 }
 
@@ -41,9 +50,49 @@ h1 {
   margin: 0;
 }
 
+/* 아케이드 톤 UI 조미료(Phase 7, Task 20-4): 미션 클리어 진입 연출 —
+   튀어오르듯 스케일 인 후 앰버 글로우 두 번 깜빡. 실패 화면에는 미적용. */
+@keyframes mission-clear-pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes mission-clear-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgba(255, 183, 3, 0);
+  }
+  50% {
+    text-shadow: 0 0 12px var(--arcade-accent);
+  }
+}
+
+.mission-clear-title {
+  color: var(--primary);
+  animation:
+    mission-clear-pop 0.4s ease-out,
+    mission-clear-glow 1.2s ease-in-out 0.4s 2;
+}
+
 .subtitle {
   color: var(--text-dim);
   margin: 0;
+}
+
+/* Task 20-6(검토용): 입력 화면 상단 로고. 실제로 넣어보고 복잡해 보이면 뺄 것 */
+.input-screen-logo {
+  width: 40px;
+  height: 40px;
 }
 
 label {
@@ -89,11 +138,43 @@ input:focus {
   color: white;
 }
 
+/* 아케이드 톤 UI 조미료(Phase 7, Task 20-2): 둥근 모서리 대신 2단 계단식 픽셀
+   모서리. 이미지 에셋 없이 순수 clip-path만 사용 — 미니앱 용량/성능 영향 없음.
+   --pixel-border-width(Task 20-1 토큰)를 계단 한 칸 크기로 재사용. */
+button.primary,
+button.secondary,
+.bubble,
+.certificate-turn,
+.certificate-summary {
+  border-radius: 0;
+  clip-path: polygon(
+    0 calc(var(--pixel-border-width) * 2),
+    var(--pixel-border-width) calc(var(--pixel-border-width) * 2),
+    var(--pixel-border-width) var(--pixel-border-width),
+    calc(var(--pixel-border-width) * 2) var(--pixel-border-width),
+    calc(var(--pixel-border-width) * 2) 0,
+    calc(100% - var(--pixel-border-width) * 2) 0,
+    calc(100% - var(--pixel-border-width) * 2) var(--pixel-border-width),
+    calc(100% - var(--pixel-border-width)) var(--pixel-border-width),
+    calc(100% - var(--pixel-border-width)) calc(var(--pixel-border-width) * 2),
+    100% calc(var(--pixel-border-width) * 2),
+    100% calc(100% - var(--pixel-border-width) * 2),
+    calc(100% - var(--pixel-border-width)) calc(100% - var(--pixel-border-width) * 2),
+    calc(100% - var(--pixel-border-width)) calc(100% - var(--pixel-border-width)),
+    calc(100% - var(--pixel-border-width) * 2) calc(100% - var(--pixel-border-width)),
+    calc(100% - var(--pixel-border-width) * 2) 100%,
+    calc(var(--pixel-border-width) * 2) 100%,
+    calc(var(--pixel-border-width) * 2) calc(100% - var(--pixel-border-width)),
+    var(--pixel-border-width) calc(100% - var(--pixel-border-width)),
+    var(--pixel-border-width) calc(100% - var(--pixel-border-width) * 2),
+    0 calc(100% - var(--pixel-border-width) * 2)
+  );
+}
+
 button.primary {
   background: var(--primary);
   color: white;
   border: none;
-  border-radius: 10px;
   padding: 14px;
   font-size: 16px;
   font-weight: 600;
@@ -110,7 +191,6 @@ button.secondary {
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 10px;
   padding: 14px;
   font-size: 16px;
   cursor: pointer;
@@ -169,11 +249,25 @@ button.secondary:disabled {
   color: var(--text-dim);
 }
 
-.turn-counter {
-  font-size: 13px;
-  color: var(--primary);
-  white-space: nowrap;
+/* 아케이드 톤 UI 조미료(Phase 7, Task 20-3): "0 / 7 턴" 텍스트 대신 블록 게이지.
+   진행 텍스트는 스크린리더용 aria-label로만 남김. */
+.turn-gauge {
+  display: flex;
+  gap: 3px;
   margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.turn-gauge-block {
+  width: 10px;
+  height: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.turn-gauge-block.filled {
+  background: var(--arcade-accent);
+  border-color: var(--arcade-accent);
 }
 
 .message-list {
@@ -187,7 +281,6 @@ button.secondary:disabled {
 .bubble {
   max-width: 80%;
   padding: 10px 14px;
-  border-radius: 14px;
   font-size: 15px;
   line-height: 1.4;
 }
@@ -237,12 +330,22 @@ button.secondary:disabled {
 
 .hint-button {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 12px 14px;
   font-size: 14px;
 }
 
+/* 아케이드 톤 UI 조미료(Phase 7, Task 20-5): 💡 이모지 대신 픽셀 아이콘 */
+.pixel-hint-icon {
+  fill: var(--arcade-accent);
+  flex-shrink: 0;
+}
+
 .error {
-  color: #ff6b6b;
+  color: var(--danger);
   font-size: 14px;
   margin: 0;
 }
@@ -265,10 +368,29 @@ button.secondary:disabled {
   overflow-y: auto;
 }
 
+/* 미션 전체 총평 카드 (Phase 8 Task 23-2) — 턴별 카드보다 살짝 강조되게
+   primary 톤 배경, hint-box와 동일한 톤 사용 */
+.certificate-summary {
+  background: rgba(79, 124, 255, 0.08);
+  border: 1px solid var(--primary);
+  padding: 12px 14px;
+}
+
+.certificate-summary-label {
+  margin: 0 0 4px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.certificate-summary p:not(.certificate-summary-label) {
+  margin: 0;
+  font-size: 14px;
+}
+
 .certificate-turn {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
   padding: 12px 14px;
 }
 
@@ -278,7 +400,6 @@ button.secondary:disabled {
 
 .certificate-turn .grade {
   margin: 0;
-  color: var(--primary);
   font-size: 13px;
   font-weight: 600;
 }
@@ -309,9 +430,25 @@ button.secondary:disabled {
   z-index: 100;
 }
 
+/* 바텀시트라 아래쪽은 화면 끝과 맞닿아 있어서 위쪽 모서리만 계단식으로 깎음
+   (Task 20-2) — 아래까지 깎으면 오버레이가 노치 틈으로 비쳐 보임. */
 .modal-card {
   background: var(--bg);
-  border-radius: 16px 16px 0 0;
+  border-radius: 0;
+  clip-path: polygon(
+    0 calc(var(--pixel-border-width) * 2),
+    var(--pixel-border-width) calc(var(--pixel-border-width) * 2),
+    var(--pixel-border-width) var(--pixel-border-width),
+    calc(var(--pixel-border-width) * 2) var(--pixel-border-width),
+    calc(var(--pixel-border-width) * 2) 0,
+    calc(100% - var(--pixel-border-width) * 2) 0,
+    calc(100% - var(--pixel-border-width) * 2) var(--pixel-border-width),
+    calc(100% - var(--pixel-border-width)) var(--pixel-border-width),
+    calc(100% - var(--pixel-border-width)) calc(var(--pixel-border-width) * 2),
+    100% calc(var(--pixel-border-width) * 2),
+    100% 100%,
+    0 100%
+  );
   padding: 24px 20px;
   width: 100%;
   max-width: 480px;

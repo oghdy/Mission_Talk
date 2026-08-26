@@ -22,6 +22,12 @@ const CertificateSchema = z.object({
       }),
     )
     .describe("사용자가 친 문장 전체를 순서대로 평가한 목록"),
+  overallComment: z
+    .string()
+    .describe(
+      "미션 전체에 대한 2~3문장 총평. 한국어, 해요체로 작성. 잘한 점을 먼저 짚고, 개선하면 좋을 " +
+        "점이 있으면 격려하는 톤으로 덧붙이기 (부정적이거나 낙담시키는 표현은 쓰지 않기)",
+    ),
 });
 
 export async function generateCertificate(session: Session): Promise<Certificate> {
@@ -45,7 +51,9 @@ export async function generateCertificate(session: Session): Promise<Certificate
       "표현을 쓰는지에만 영향을 주는 것이고, 사용자 문장의 정확성 기준을 낮추거나 높이면 안 됩니다).\n" +
       "이 앱은 한국 사용자가 외국어를 배우는 앱입니다. comment(개선 제안)의 설명 문장은 사용자가 " +
       "학습 중인 언어와 무관하게 항상 한국어로 작성하세요. 고친 문장 예시를 인용할 때만 대상 언어를 쓰고, " +
-      "설명 자체를 대상 언어로 쓰지 마세요.",
+      "설명 자체를 대상 언어로 쓰지 마세요.\n" +
+      "overallComment(총평)는 미션 전체를 놓고 격려하는 톤으로 쓰세요. 잘한 점을 먼저 짚고, " +
+      "아쉬운 점이 있으면 낙담시키지 않는 방식으로 덧붙이세요.",
     messages: [
       {
         role: "user",
@@ -65,5 +73,6 @@ export async function generateCertificate(session: Session): Promise<Certificate
   return {
     turns: response.parsed_output.turns,
     missionCleared: session.missionComplete,
+    overallComment: response.parsed_output.overallComment,
   };
 }

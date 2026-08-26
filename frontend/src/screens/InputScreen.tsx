@@ -1,4 +1,5 @@
 import { useState } from "react";
+import logo from "../assets/logo_96.png";
 import type { Difficulty, Language } from "../types";
 
 const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
@@ -77,6 +78,7 @@ export function InputScreen({
 
   return (
     <div className="screen input-screen">
+      <img src={logo} alt="" className="input-screen-logo" />
       <h1>미션톡</h1>
       <p className="subtitle">상대방/성격/난이도를 정하고 7턴 안에 미션을 클리어해보세요.</p>
 
