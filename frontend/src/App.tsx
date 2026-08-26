@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { graniteEvent, Screen } from "@apps-in-toss/web-framework";
-import { generatePersona, getSessionState } from "./api";
+import { generatePersona, getSessionState, HttpError } from "./api";
 import { identityProvider } from "./lib/identity";
+import { resetConnectionHealth, subscribeToConnectionTrouble } from "./lib/connectionHealth";
 import { clearActiveSessionId, loadActiveSessionId, saveActiveSessionId } from "./lib/sessionPersistence";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { InputScreen, type InputValue } from "./screens/InputScreen";
@@ -22,6 +23,11 @@ export default function App() {
   const [stage, setStage] = useState<Stage>({ name: "restoring" });
   const [error, setError] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showConnectionTrouble, setShowConnectionTrouble] = useState(false);
+  // 미션 생성이 실패해서 입력 화면으로 돌아왔을 때 그대로 이어 채우기 위한 기억값.
+  // leaveToInput()에서 의도적으로 비움 — 안 비우면 완전히 새로 시작하는 사용자에게
+  // 예전에 실패했던 낡은 값이 뜬금없이 채워짐.
+  const [lastFailedInput, setLastFailedInput] = useState<InputValue | null>(null);
 
   // graniteEvent 리스너는 마운트 시 한 번만 등록하므로, 콜백 안에서 최신 stage를
   // 읽으려면 ref가 필요함(그렇지 않으면 등록 시점의 stage로 클로저가 고정됨).
@@ -47,12 +53,21 @@ export default function App() {
           setStage({ name: "chat", sessionId, persona: state.persona, initialTurns: state.turns });
         }
       })
-      .catch(() => {
-        // 서버 재시작(인메모리 폴백) 등으로 세션이 이미 사라진 경우 — 조용히 새로 시작
-        clearActiveSessionId();
+      .catch((e) => {
+        // 세션 포인터는 "이 id가 확실히 못 쓴다"고 확인됐을 때만 버린다.
+        //   4xx  = 세션이 없거나(404) id가 잘못됨 → 버리는 게 맞음
+        //   5xx·네트워크 실패 = 서버/연결의 일시적 문제, 세션은 살아있을 수 있음 → 유지
+        // 구분 없이 지우면 잠깐 연결이 끊긴 사용자가 진행 중이던 미션을 영영 잃는다.
+        if (e instanceof HttpError && e.status < 500) {
+          clearActiveSessionId();
+        }
         setStage({ name: "input" });
       });
   }, []);
+
+  // 연속 통신 실패가 임계값을 넘으면 안내 모달을 띄운다. 화면별로 흩어 넣지 않고
+  // 앱 레벨에서 한 번만 구독 — 실패는 복원/대화/수료증 어디서나 발생한다.
+  useEffect(() => subscribeToConnectionTrouble(() => setShowConnectionTrouble(true)), []);
 
   // 앱인토스 네이티브 내비게이션 바의 뒤로가기 버튼(<)을 가로챈다. 등록하는 순간
   // 기본 뒤로가기 동작(그냥 닫히는 것)은 막히므로, 화면별 동작을 직접 정의해야 함
@@ -91,10 +106,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function dismissConnectionTrouble() {
+    setShowConnectionTrouble(false);
+    resetConnectionHealth(); // 닫자마자 다시 뜨지 않도록 카운터를 비움
+  }
+
+  // 앱인토스 권장: 자체 서버와 통신이 끊기면 알럿 노출 + 미니앱 종료 로직 제공
+  // (긴급 점검 설정하기 문서). WebView 밖에서는 Screen.close가 throw하므로 방어(Step 16).
+  function closeMiniApp() {
+    dismissConnectionTrouble();
+    try {
+      Screen.close();
+    } catch (err) {
+      console.warn("Screen.close 불가(앱인토스 WebView 환경이 아님)", err);
+    }
+  }
+
   function leaveToInput() {
     activeRequestRef.current += 1; // 진행 중이던 handleStart의 결과를 무효화
     clearActiveSessionId();
     setShowLeaveConfirm(false);
+    setLastFailedInput(null); // 새로 시작하는 것이므로 이전 실패 기억은 버림
     setStage({ name: "input" });
   }
 
@@ -111,6 +143,7 @@ export default function App() {
     } catch (e) {
       if (activeRequestRef.current !== requestId) return;
       setError(e instanceof Error ? e.message : "미션 생성에 실패했습니다.");
+      setLastFailedInput(value); // 입력 화면이 다시 마운트될 때 이 값으로 이어 채움
       setStage({ name: "input" });
     }
   }
@@ -119,7 +152,7 @@ export default function App() {
     <div className="app">
       {error && <p className="error top-error">{error}</p>}
       {stage.name === "restoring" && <LoadingScreen />}
-      {stage.name === "input" && <InputScreen onSubmit={handleStart} />}
+      {stage.name === "input" && <InputScreen onSubmit={handleStart} initialValue={lastFailedInput} />}
       {stage.name === "loading" && <LoadingScreen />}
       {stage.name === "chat" && (
         <ChatScreen
@@ -148,6 +181,17 @@ export default function App() {
         cancelLabel="계속하기"
         onConfirm={leaveToInput}
         onCancel={() => setShowLeaveConfirm(false)}
+      />
+
+      {/* 나가기 확인 모달이 떠 있으면 겹쳐 띄우지 않는다(오버레이 중첩 방지). */}
+      <ConfirmModal
+        open={showConnectionTrouble && !showLeaveConfirm}
+        title="서버와 연결이 불안정해요"
+        description="잠시 후 다시 시도하거나, 미니앱을 종료했다가 다시 들어와 주세요. 진행 중인 미션은 저장돼 있어요."
+        confirmLabel="종료하기"
+        cancelLabel="닫기"
+        onConfirm={closeMiniApp}
+        onCancel={dismissConnectionTrouble}
       />
     </div>
   );

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { warmUpBackend } from "../api";
 import logo from "../assets/logo_96.png";
 import type { Difficulty, Language } from "../types";
 
@@ -61,13 +62,22 @@ export interface InputValue {
 
 export function InputScreen({
   onSubmit,
+  initialValue,
 }: {
   onSubmit: (value: InputValue) => void;
+  // 직전 시도가 실패해서 이 화면으로 돌아온 경우, 그때 입력했던 값을 이어서 채워둔다.
+  initialValue?: InputValue | null;
 }) {
-  const [language, setLanguage] = useState<Language>("en");
-  const [role, setRole] = useState("");
-  const [personality, setPersonality] = useState("");
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [language, setLanguage] = useState<Language>(initialValue?.language ?? "en");
+  const [role, setRole] = useState(initialValue?.role ?? "");
+  const [personality, setPersonality] = useState(initialValue?.personality ?? "");
+  const [difficulty, setDifficulty] = useState<Difficulty>(initialValue?.difficulty ?? "medium");
+
+  // 사용자가 상대방/성격을 입력하는 동안 백엔드를 미리 깨워둔다. 콜드스타트(22.6초)를
+  // "미션 시작하기" 이후의 대기 시간에서 빼내는 게 목적 — 결과는 기다리지 않는다.
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
 
   const canSubmit = role.trim().length > 0 && personality.trim().length > 0;
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getHint, sendTurn } from "../api";
+import { getHint, getSessionState, NetworkError, sendTurn } from "../api";
 import { PixelHintIcon } from "../components/PixelHintIcon";
 import type { ChatMessage, ChatTurnRecord, Hint, Persona } from "../types";
 
@@ -52,9 +52,42 @@ export function ChatScreen({
         onEnded(result.ended);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "메시지 전송에 실패했습니다.");
+      // 클라이언트가 응답을 못 받았을 뿐, 서버는 실제로 턴 처리를 끝냈을 수 있다
+      // (타임아웃·연결 끊김). 서버가 명확히 실패를 응답한 경우(HttpError)는 재동기화할
+      // 이유가 없으므로 NetworkError일 때만 시도한다.
+      if (e instanceof NetworkError && (await resyncAfterNetworkFailure())) {
+        // 실제로는 성공한 것으로 확인됨 — 에러를 보여주지 않는다.
+      } else {
+        setError(e instanceof Error ? e.message : "메시지 전송에 실패했습니다.");
+      }
     } finally {
       setSending(false);
+    }
+  }
+
+  /**
+   * 서버가 알고 있는 최신 상태로 화면을 다시 맞춘다. 부분 패치 대신 항상 전체
+   * 메시지 목록을 재구성하는 이유: 낙관적으로 먼저 넣어둔 사용자 말풍선과 서버
+   * 응답 사이에 불일치·중복이 생길 여지를 원천 차단하기 위함(App.tsx의 세션
+   * 복원 로직과 동일한 원칙).
+   *
+   * @returns 서버 턴 수가 실제로 늘어 있어서(=진짜로 성공해서) 재동기화했으면 true
+   */
+  async function resyncAfterNetworkFailure(): Promise<boolean> {
+    try {
+      const state = await getSessionState(sessionId);
+      if (state.turnNumber <= turnNumber) {
+        return false; // 서버도 이 턴을 못 받았음 — 진짜 실패
+      }
+      setMessages(buildInitialMessages(persona, state.turns));
+      setTurnNumber(state.turnNumber);
+      setMaxTurns(state.maxTurns);
+      if (state.ended) {
+        onEnded(state.ended);
+      }
+      return true;
+    } catch {
+      return false; // 재동기화 시도 자체도 실패 — 원래 에러를 그대로 보여준다
     }
   }
 
