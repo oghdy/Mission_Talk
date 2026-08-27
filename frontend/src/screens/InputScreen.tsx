@@ -58,6 +58,8 @@ export interface InputValue {
   role: string;
   personality: string;
   difficulty: Difficulty;
+  // 이 값이 "🎲 아무거나 골라줘"로 채워진 그대로 제출됐는지 (Phase 13 Task 38-1).
+  randomFill: boolean;
 }
 
 export function InputScreen({
@@ -72,6 +74,10 @@ export function InputScreen({
   const [role, setRole] = useState(initialValue?.role ?? "");
   const [personality, setPersonality] = useState(initialValue?.personality ?? "");
   const [difficulty, setDifficulty] = useState<Difficulty>(initialValue?.difficulty ?? "medium");
+  // initialValue가 있어도(=직전 시도가 실패해서 복원된 값) 이 플래그는 항상 false로
+  // 시작한다 — 복원된 값은 이미 한 번 실패해서 다시 손댈 값이라 "랜덤 채우기 그대로"로
+  // 보기 애매하기 때문(Phase 13 Task 38-1).
+  const [randomFill, setRandomFill] = useState(false);
 
   // 사용자가 상대방/성격을 입력하는 동안 백엔드를 미리 깨워둔다. 콜드스타트(22.6초)를
   // "미션 시작하기" 이후의 대기 시간에서 빼내는 게 목적 — 결과는 기다리지 않는다.
@@ -84,6 +90,7 @@ export function InputScreen({
   function handleRandomFill() {
     setRole(pickRandom(ROLE_SAMPLES));
     setPersonality(pickRandom(PERSONALITY_SAMPLES));
+    setRandomFill(true);
   }
 
   return (
@@ -112,7 +119,10 @@ export function InputScreen({
         상대방
         <input
           value={role}
-          onChange={(e) => setRole(e.target.value)}
+          onChange={(e) => {
+            setRole(e.target.value);
+            setRandomFill(false); // 랜덤으로 채운 뒤 한 글자라도 고치면 더 이상 "그대로"가 아님
+          }}
           placeholder="예: 카페 직원"
           maxLength={100}
         />
@@ -122,7 +132,10 @@ export function InputScreen({
         성격
         <input
           value={personality}
-          onChange={(e) => setPersonality(e.target.value)}
+          onChange={(e) => {
+            setPersonality(e.target.value);
+            setRandomFill(false);
+          }}
           placeholder="예: 츤데레"
           maxLength={100}
         />
@@ -151,7 +164,7 @@ export function InputScreen({
       <button
         className="primary"
         disabled={!canSubmit}
-        onClick={() => onSubmit({ language, role, personality, difficulty })}
+        onClick={() => onSubmit({ language, role, personality, difficulty, randomFill })}
       >
         미션 시작하기
       </button>

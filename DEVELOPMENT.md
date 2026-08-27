@@ -910,6 +910,49 @@
 
 ---
 
+## Phase 13: 이벤트 수집 프론트 인계 사항 처리 (F-5, F-6) `[AGENT 완료]`
+
+*배경: Phase 12 Step 36에서 백엔드가 인계한 F-5(공유 결과 보고)/F-6(랜덤 채우기 플래그 전송) 처리. 둘 다 프론트 전용, 백엔드는 이미 배포 완료라 건드리지 않음. 둘 다 "지금 당장 안 해도 서비스는 정상 동작"하는 보고성 작업이지만, 안 하면 `share_result` 이벤트가 영원히 안 쌓이고 `randomFill`이 항상 `null`로만 쌓임.*
+
+### Step 37: 공유 결과 보고 (F-5)
+
+- **Task 37-1: [Frontend] `POST /events/share` fire-and-forget 헬퍼 추가** `[AGENT 완료]`
+  - `api.ts`에 `reportShareOutcome(sessionId, outcome)` 추가 — Task 31-1의 `warmUpBackend()`와 동일한 이유로 공용 `request()`를 안 씀: 응답을 기다려서 할 일이 없고, 실패가 `connectionHealth.ts`의 연속 실패 카운터에 잡히면 안 되는(오탐) 배경 보고성 요청이기 때문
+  - `outcome` 타입은 `lib/share.ts`의 `ShareOutcome`을 그대로 import — 백엔드 계약이 이미 이 타입 값과 1:1로 맞춰져 있어(Task 35-3) 별도 매핑 코드 불필요
+  - 관련 파일: [frontend/src/api.ts](frontend/src/api.ts)
+- **Task 37-2: [Frontend] `ResultScreen.handleShare`에서 결과 즉시 보고** `[AGENT 완료]`
+  - `shareProvider.share()`가 outcome을 반환하는 그 지점 직후, **await 없이** `reportShareOutcome` 호출 — 공유 버튼의 토스트 문구·비활성화 로직과 순서상 완전히 분리
+  - 관련 파일: [frontend/src/screens/ResultScreen.tsx](frontend/src/screens/ResultScreen.tsx)
+- **Task 37-3: `[버그 수정, 작업 중 발견]` 로컬 dev 프록시에 `/events` 누락** `[AGENT 완료]`
+  - Task 31-1(`/health` 워밍업)과 정확히 같은 종류의 갭: `vite.config.ts`의 dev 프록시 목록에 `/events`가 없어서, 로컬에서 `POST /events/share`가 백엔드가 아니라 **Vite dev 서버 자체에서 404**로 끝나는 것을 실제 테스트 중 발견. 프로덕션은 `VITE_API_BASE_URL` 절대 URL을 쓰므로 이 문제가 없지만, 로컬 개발 중엔 F-5가 항상 조용히 실패하는 상태였음
+  - 관련 파일: [frontend/vite.config.ts](frontend/vite.config.ts)
+  - **검증 (실제 API + 실제 Supabase)**:
+    - 수정 전: 공유 클릭 → 네트워크 탭에 `POST /events/share → 404`(Vite가 응답, 서버 로그엔 아무 기록도 없음)
+    - 수정 후(dev 서버 재시작 필요 — 프록시 설정은 핫리로드 안 됨): `POST /events/share → 202`, 백엔드 로그에도 정상 기록. `analytics_events`를 직접 조회해 `payload: {"outcome": "toss"}`가 실제로 저장된 것 확인
+    - **제약 준수 검증**: `/events/share`만 골라 강제로 3연속 실패시킨 뒤 공유 버튼을 3번 연속 클릭 → 매번 `console.warn`만 조용히 남고(`"공유 결과 보고 실패(무시 가능)"`) **공유 버튼 UX는 완전히 정상**(항상 devtools mock의 공유 시트로 이어짐, 토스트 문구도 정상 동작), **"서버와 연결이 불안정해요" 모달은 3번 다 안 뜸**(연속 2회 임계값을 우회했다는 뜻 — `connectionHealth.ts`를 안 쓰는 게 실제로 작동함을 확인)
+    - 테스트에 쓴 세션 4개·미션 캐시 4개·이벤트 6개는 전부 Supabase에서 삭제함
+
+### Step 38: 랜덤 채우기 플래그 전송 (F-6)
+
+- **Task 38-1: [Frontend] `InputScreen`에 `randomFill` 상태 추가** `[AGENT 완료]`
+  - "🎲 아무거나 골라줘" 클릭 시 `true`, 상대방/성격 입력란을 사용자가 직접 고치면(`onChange`) `false`로 리셋
+  - 실패 후 복원되는 값(`initialValue`, Task 33-1)에는 이 플래그를 **반영하지 않고 항상 `false`로 시작** — 복원된 값은 이미 한 번 실패해서 다시 손댈 값이라 "랜덤 채우기 그대로"로 보기 애매하다는 인계 시 권고를 그대로 따름
+  - 관련 파일: [frontend/src/screens/InputScreen.tsx](frontend/src/screens/InputScreen.tsx)
+- **Task 38-2: [Frontend] `generatePersona` 호출에 `randomFill` 포함** `[AGENT 완료]`
+  - `InputValue`에 `randomFill: boolean` 필드 추가 → `App.tsx`의 `generatePersona({ ...value, userKey })` 호출이 스프레드로 이미 넘기고 있어 호출부 자체는 수정 불필요, `api.ts`의 파라미터 타입에만 `randomFill?: boolean` 추가
+  - 관련 파일: [frontend/src/screens/InputScreen.tsx](frontend/src/screens/InputScreen.tsx), [frontend/src/api.ts](frontend/src/api.ts)
+  - **검증 (실제 API로 요청 바디 캡처)**: 3가지 시나리오 전부 실측
+    1. 랜덤 채우기 → 수정 없이 제출 → `randomFill: true`
+    2. 직접 타이핑(상대방="편의점 알바생", 성격="친절함") → 제출 → `randomFill: false`
+    3. 랜덤 채우기 후 상대방 입력란 끝에 한 글자 추가 → 제출 → `randomFill: false`(리셋 확인)
+
+#### 전체 검증
+
+- `tsc --noEmit` 통과, `vite build` 통과(번들 220.41 kB)
+- 정상 흐름 회귀 없음: 실제 미션 하나를 완주(중고 자전거 가격 협상 미션, "완벽해요"/"그럭저럭이에요" 혼합 등급 + 총평 정상 표시)해 Phase 7/8 UI 전부 회귀 없음도 함께 확인
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
@@ -957,3 +1000,6 @@
 | 콜드스타트 완화 | 입력 화면 진입 시 `/health` fire-and-forget 워밍업(실패 카운터에 미반영) | 사용자가 입력하는 동안 서버를 깨워 22.6초를 대기 경로 밖으로 밀어냄 (Task 31-1) |
 | 턴 전송 타임아웃 재동기화 | `NetworkError`일 때만 `GET /chat/session/:id`로 재조회, 서버 턴 수가 늘어있으면 에러 없이 화면을 서버 상태로 재구성 | 클라이언트가 먼저 끊어도 서버는 처리를 끝냈을 수 있음(실측으로 확인) — `HttpError`는 서버가 이미 결과를 명확히 응답했으므로 대상 아님 (Task 32-1) |
 | 미션 생성 실패 시 입력값 | `App.tsx`가 마지막 시도값을 기억했다가 `InputScreen` 재마운트 시 복원. `leaveToInput()`(나가기/재도전)에서는 의도적으로 비움 | 실패마다 처음부터 다시 타이핑하는 불편 해소. 완전히 새로 시작할 땐 낡은 값이 새면 안 됨 (Task 33-1) |
+| 공유 결과 보고 | `reportShareOutcome`은 `request()`를 안 쓰는 fire-and-forget — 실패해도 `console.warn`만, `connectionHealth.ts` 카운터에 미반영 | 사용자가 시작 안 한 배경 보고 요청이라 실패해도 공유 UX·통신 안내 모달에 영향 주면 안 됨 (Task 37-1, 37-2) |
+| 랜덤 채우기 플래그 | `InputScreen`에 `randomFill` 상태 추가. 랜덤 버튼=true, role/personality 직접 수정 시 false로 리셋. 실패 복원값엔 미반영(항상 false로 시작) | `/persona/generate`에 실어 보내 랜덤 채우기 트래픽과 직접입력 트래픽 구분(Task 38-1, 38-2) |
+| Vite dev 프록시 목록 | `/persona`/`/chat`/`/certificate`/`/health`/`/events` — 새 백엔드 엔드포인트 추가 시 여기도 같이 추가할 것 | 프록시 누락 시 로컬에서만 404(프로덕션은 절대 URL이라 무관) — `/health`(Task 31-1), `/events`(Task 37-3)에서 두 번 반복된 실수 |

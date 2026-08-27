@@ -1,4 +1,5 @@
 import { reportNetworkFailure, reportNetworkSuccess } from "./lib/connectionHealth";
+import type { ShareOutcome } from "./lib/share";
 import type { Certificate, Difficulty, Hint, Language, Persona, SessionState, TurnResult } from "./types";
 
 // 비워두면(로컬 dev) vite.config.ts 프록시를 통해 상대경로로 호출.
@@ -120,12 +121,32 @@ export function warmUpBackend(): void {
   });
 }
 
+/**
+ * 공유가 실제로 어떤 방식으로 끝났는지(Phase 12 Task 35-3) 배경으로 보고한다.
+ * warmUpBackend()와 동일한 이유로 일부러 request()를 안 쓴다 — 응답을 기다려서 할
+ * 일이 없고(항상 202를 fail-open으로 반환), 이 실패가 connectionHealth.ts의 연속
+ * 실패 카운터에 잡히면 사용자가 시작하지도 않은 배경 요청 때문에 통신 안내 모달이
+ * 오탐으로 뜬다. 공유 버튼의 UX(토스트 문구 등)와도 완전히 무관하게 흘러가야 한다.
+ */
+export function reportShareOutcome(sessionId: string, outcome: ShareOutcome): void {
+  fetch(resolveUrl("/events/share"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, outcome }),
+  }).catch((err) => {
+    console.warn("공유 결과 보고 실패(무시 가능)", err);
+  });
+}
+
 export function generatePersona(input: {
   language: Language;
   role: string;
   personality: string;
   difficulty: Difficulty;
   userKey: string | null;
+  // 이 미션이 "🎲 아무거나 골라줘"로 채워진 값 그대로 제출됐는지(true) 여부. 안 보내도
+  // 백엔드가 하위호환으로 null 처리하지만, 우리 쪽은 항상 판단 가능하므로 항상 보낸다.
+  randomFill?: boolean;
 }): Promise<{ sessionId: string; persona: Persona }> {
   return postJSON("/persona/generate", input, TIMEOUT_MS.persona);
 }

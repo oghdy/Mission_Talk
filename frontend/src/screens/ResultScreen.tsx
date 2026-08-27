@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { generateCertificate } from "../api";
+import { generateCertificate, reportShareOutcome } from "../api";
 import { shareProvider } from "../lib/share";
 import type { Certificate, Persona } from "../types";
 
@@ -46,6 +46,9 @@ export function ResultScreen({
     setShareNotice(null);
     try {
       const outcome = await shareProvider.share(buildShareMessage(persona, ended));
+      // fire-and-forget — 이 보고의 성공/실패가 아래 토스트 문구·버튼 상태에 영향을
+      // 주면 안 되므로 await하지 않는다(Phase 13 Task 37-2).
+      reportShareOutcome(sessionId, outcome);
       if (outcome === "clipboard") {
         setShareNotice("공유 내용을 클립보드에 복사했어요.");
       } else if (outcome === "failed") {
