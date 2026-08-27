@@ -9,6 +9,7 @@ import chatRouter from "./routes/chat.js";
 import hintRouter from "./routes/hint.js";
 import sessionRouter from "./routes/session.js";
 import certificateRouter from "./routes/certificate.js";
+import eventsRouter from "./routes/events.js";
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use("/chat/turn", chatRouter);
 app.use("/chat/hint", hintRouter);
 app.use("/chat/session", sessionRouter);
 app.use("/certificate/generate", certificateRouter);
+app.use("/events", eventsRouter);
 
 // Render 헬스체크 + 프론트엔드의 콜드스타트 워밍업(Step 28 F-3) 대상.
 // 의존성(Supabase/Anthropic)까지 확인하지 않고 프로세스 생존만 보고한다 —

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { recordLlmError } from "../analytics.js";
 import { badRequest, conflict, upstreamFailure } from "../http/AppError.js";
 import { asyncHandler } from "../http/asyncHandler.js";
 import { generateCertificate } from "../llm/certificate.js";
@@ -45,6 +46,7 @@ router.post(
     try {
       certificate = await generateCertificate(session);
     } catch (err) {
+      recordLlmError({ endpoint: "certificate_generate", sessionId: session.id, error: err });
       throw upstreamFailure("수료증 생성에 실패했습니다.", err);
     }
 

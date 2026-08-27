@@ -831,6 +831,85 @@
 
 ---
 
+## Phase 12: 사용자 트래픽/이벤트 데이터 수집 장치
+
+*배경: 사용자 요청 — 서비스 트래픽/사용 패턴을 나중에 분석할 수 있도록 DB에 이벤트를 쌓는 장치를 만들고 싶다. 대시보드나 분석 UI는 이번 범위 밖, "데이터가 안전하게 쌓이는 구조"만 목표. `mission_talk_sessions`/`mission_cache` 스키마, `store.ts`/`missionCache.ts`의 fail-open 패턴, 기존 문서화 습관을 그대로 이어서 진행.*
+
+*범위: 백엔드만. 이번 라운드에서 새로 필요해진 프론트 작업(공유 이벤트 전송, 랜덤 채우기 플래그 전송)은 Step 36에 인계 사항으로 정리하고 프론트 코드는 건드리지 않음.*
+
+### Step 34: 테이블 설계
+
+- **Task 34-1: [DB] `analytics_events` 테이블 추가** `[AGENT 완료]`
+  - **컬럼 구조**
+
+    | 컬럼 | 타입 | 설명 |
+    |---|---|---|
+    | `id` | uuid PK | |
+    | `event_type` | text | 5종 이벤트 타입(아래 Step 35). enum이 아니라 text인 이유는 `language`/`difficulty`와 동일 — 새 이벤트 타입이 늘어날 때 `ALTER TYPE` 마이그레이션 없이 값만 추가하면 되게 하려는 것(Task 1-2 때부터의 컨벤션) |
+    | `session_id` | uuid, FK → `mission_talk_sessions(id)` `ON DELETE SET NULL` | 세션이 (현재는 일어나지 않지만) 나중에 삭제되더라도 그 세션에서 나온 과거 이벤트 자체는 분석 이력으로 남아야 하므로 CASCADE가 아니라 SET NULL로 잡음 |
+    | `user_key` | text, nullable | 완전 익명 식별키만. 그 이상의 개인식별정보는 어떤 이벤트에도 넣지 않음(사용자 요청 원칙 1) |
+    | `language` / `difficulty` | text, nullable | `mission_talk_sessions`에 이미 있는 값이라 중복이지만, 분석에서 가장 자주 쪼개보는 두 축이라 매번 세션 테이블과 조인하지 않도록 일부러 비정규화. `payload` 안에 묻으면 `payload->>'language'` 캐스팅이 필요해 인덱스 활용도 떨어짐 |
+    | `payload` | jsonb | 이벤트 타입별 상세 필드(아래 Step 35 표) |
+    | `created_at` | timestamptz | |
+
+  - **왜 테이블 하나로 5개 이벤트 타입을 다 담았는가**: 세션 하나의 흐름(생성 → 힌트 N회 → 종료 → 공유)을 시간순으로 보려면 결국 `session_id`로 묶어야 하는데, 타입별로 테이블을 쪼개면 이 조회가 매번 여러 테이블 UNION/JOIN이 됨. `event_type` + `payload`(jsonb) 조합이면 한 테이블에서 필터링·정렬만으로 충분
+  - 인덱스 2개: `(event_type, created_at desc)`(타입별 최신순 조회), `(session_id, created_at)`(세션별 타임라인 조회) — 실제 조회 패턴 2가지에 맞춰 최소한으로만
+  - RLS: `mission_talk_sessions`/`mission_cache`와 동일 이유로 비활성(서비스 롤 키 전용 접근, Step 12 C-2 결론 재사용). 클라이언트가 Supabase에 직접 붙는 구조로 바뀌면 이 테이블도 그 즉시 켜야 함
+  - 관련 파일: [backend/supabase/schema.sql](backend/supabase/schema.sql)
+  - 마이그레이션: `supabase db query --linked -f backend/supabase/schema.sql`(Step 19에서 발견한 비밀번호 불필요 방식) 실행 후, `information_schema.columns`로 실제 반영된 8개 컬럼 전부 확인함
+
+### Step 35: 이벤트 기록 모듈 + 라우트 연결
+
+- **Task 35-1: [Backend] `analytics.ts` 모듈 신설** `[AGENT 완료]`
+  - `missionCache.ts`의 `getCachedMission`/`saveMissionToCache`와 완전히 동일한 fail-open 패턴 — Supabase insert를 try/catch로 감싸고, `error` 필드로 오는 실패와 네트워크 자체가 끊겨 throw하는 실패 둘 다 warn 로그만 남기고 삼킴
+  - 인메모리 모드(`SUPABASE_URL` 미설정)는 이벤트 기록 자체를 스킵 — `missionCache.ts`와 동일 컨벤션
+  - **의도적 설계**: 타입별 헬퍼 함수(`recordMissionGenerationRequested` 등)의 반환 타입을 전부 `void`로 선언 — 내부 `recordEvent`는 위 fail-open 덕에 절대 reject하지 않지만, 그와 별개로 호출부가 실수로 `await`해서 **이벤트 기록 완료까지 응답이 늦어지는 것 자체**를 타입 레벨에서 막기 위함(사용자 요청 원칙 2: 절대 흐름을 막지 않아야 함 — 실패뿐 아니라 지연도 포함해서 해석함)
+  - 관련 파일: [backend/src/analytics.ts](backend/src/analytics.ts)
+
+- **Task 35-2: [Backend] 5개 이벤트 타입 정의 + 라우트별 연결** `[AGENT 완료]`
+
+    | 이벤트 | 기록 시점 | payload | 연결 파일 |
+    |---|---|---|---|
+    | `mission_generation_requested` | 세션 생성 성공 직후 | `role`/`personality`(원문), `randomFill`(bool\|null), `cacheHit`(bool) | [routes/persona.ts](backend/src/routes/persona.ts) |
+    | `mission_ended` | 진행중→종료로 바뀌는 그 순간(세션당 1회) | `endedReason`, `turnCount` | [routes/chat.ts](backend/src/routes/chat.ts) |
+    | `hint_used` | 힌트 생성 성공 직후 | `turnNumber`(1-based, chat.ts의 turnNumber와 동일 규칙) | [routes/hint.ts](backend/src/routes/hint.ts) |
+    | `share_result` | 프론트가 직접 보고(아래 Task 35-3) | `outcome`: `toss`\|`web`\|`clipboard`\|`failed` | [routes/events.ts](backend/src/routes/events.ts) (신규) |
+    | `llm_error` | 4개 LLM 호출 지점의 catch에서, `upstreamFailure` throw 직전 | `endpoint`, `errorType`(분류) | persona/chat/hint/certificate 라우트 각 catch 블록 |
+
+  - `mission_ended`는 `GET /chat/session/:id`(재접속 시 상태 재조회)에서는 기록하지 않음 — `chat.ts`에서 `endedReason`이 `null`→값 있음으로 **바뀌는 그 요청**에서만 기록해서 세션당 정확히 1행만 남게 함
+  - `mission_generation_requested`의 `role`/`personality` 원문 저장은 `mission_cache.role_raw`/`personality_raw`에서 이미 쓰던 전례(Step 19)를 그대로 따름 — 새로운 개인정보 리스크 추가 아님
+  - `llm_error`의 `errorType` 분류는 실제 Anthropic SDK 에러 클래스 계층(`APIConnectionTimeoutError`/`RateLimitError`/`APIConnectionError`/`APIError`)을 보고 분기. 우리 코드가 자체적으로 던지는 "구조화 출력 파싱 실패" 에러(일반 `Error`)는 이 계층에 안 걸려 자연히 `parse_or_unknown`으로 분류됨 — 별도 분기 불필요
+  - 관련 파일: [backend/src/routes/persona.ts](backend/src/routes/persona.ts), [chat.ts](backend/src/routes/chat.ts), [hint.ts](backend/src/routes/hint.ts), [certificate.ts](backend/src/routes/certificate.ts)
+
+- **Task 35-3: [Backend] `POST /events/share` 신설 (공유 이벤트 수집 창구)** `[AGENT 완료]`
+  - **배경**: 공유는 `frontend/src/lib/share.ts`가 앱인토스 SDK/Web Share API/클립보드를 직접 호출하는 100% 클라이언트 동작이라, 백엔드는 이 결과를 알 방법이 원래 없음. 5개 이벤트 중 이것만 유일하게 "프론트가 관찰한 사실을 보고받는" 구조가 필요해서 새 엔드포인트를 팠음
+  - `outcome`은 `frontend/src/lib/share.ts`의 `ShareOutcome` 타입(`"toss" | "web" | "clipboard" | "failed"`)과 값 그대로 1:1 매칭되게 Zod enum을 맞춤 — 나중에 두 타입이 어긋나지 않게 하기 위한 의도적 선택
+  - `requireSession`으로 별도 세션 조회를 하지 않음 — `analytics_events.session_id`의 FK 제약이 유효하지 않은 sessionId를 어차피 걸러내고, 그 실패는 fail-open대로 로그만 남기고 클라이언트엔 항상 202. 이벤트 기록용 엔드포인트에 매번 세션 조회 왕복을 추가할 이유가 없다고 판단
+  - 확장 지점: `/events` 하위에 다른 클라이언트 전용 이벤트가 더 생기면 `routes/events.ts`에 `/events/foo`로 추가하면 됨(`index.ts`에 새 top-level mount 불필요)
+  - 관련 파일: [backend/src/routes/events.ts](backend/src/routes/events.ts)(신규), [backend/src/index.ts](backend/src/index.ts)(`/events` 마운트 추가)
+
+### Step 36: 검증 + 프론트엔드 인계 사항
+
+- **Task 36-1: [검증] 5개 이벤트 전부 실제 API + 실제 Supabase로 확인** `[AGENT 완료]`
+  - `tsc --noEmit` 통과
+  - 로컬 서버 기동 후 실제 흐름 실행: 페르소나 생성(`randomFill: true`) → 힌트 요청 → 7턴까지 진행해 `max_turns` 종료 → `/events/share` 호출. `analytics_events`를 직접 조회해 4개 이벤트(`mission_generation_requested`/`hint_used`/`mission_ended`/`share_result`)가 정확한 `payload`로 저장된 것 확인
+  - `/events/share`에 **존재하지 않는 sessionId**로 호출 → 클라이언트는 여전히 `202 {"ok":true}`를 받았지만, 서버 로그에는 `[analytics] 이벤트 기록 실패 (share_result): ... violates foreign key constraint ...`가 남는 것 확인 — fail-open이 실제로 "클라이언트엔 티 안 남, 서버 로그엔 남음"으로 동작함을 실측으로 검증
+  - `/events/share`에 잘못된 `outcome` 값 → `400`과 Zod 에러 정상 반환(FK 문제와 별개로 입력 검증은 그대로 작동)
+  - `llm_error` 분류는 실제 요청 흐름 안에서 재현하기 어려워(정상 API 키로는 실패를 못 만듦), 잘못된 API 키로 실제 Anthropic API를 호출해 별도로 검증 — `AuthenticationError`(status 401)가 `err instanceof Anthropic.APIError`로 잡혀 `api_error_401`로 분류되는 것을 실제 SDK 응답으로 확인
+  - 테스트에 쓴 세션·이벤트·미션 캐시 행은 전부 Supabase에서 삭제함
+
+- **Task 36-2: `[프론트엔드 인계]` 이번 작업으로 새로 생긴 프론트 할 일 2건** `[AGENT 완료 — 기록만, 코드 변경 없음]`
+  - **F-5 `[필수]` 공유 결과를 `POST /events/share`로 보고**: 현재 `ResultScreen.tsx`가 `shareProvider.share(message)`를 호출한 뒤 결과(`ShareOutcome`)를 화면 토스트에만 쓰고 있음. 그 결과값을 그대로 `{ sessionId, outcome }`으로 `POST /events/share`에 fire-and-forget으로 보내면 됨(백엔드가 202를 기다리게 만들 필요 없음 — 실패해도 사용자에겐 영향 없는 이벤트 보고이므로). `api.ts`에 얇은 헬퍼 하나 추가하는 정도의 작업
+  - **F-6 `[선택]` "🎲 아무거나 골라줘" 사용 여부를 `/persona/generate` 요청에 포함**: `InputScreen.tsx`가 지금은 무작위 채우기 버튼을 누르든 직접 타이핑하든 `role`/`personality`라는 같은 state에 값을 넣을 뿐이라, "이게 랜덤으로 채워진 값인지"를 구분하는 상태 자체가 없음. `handleRandomFill` 실행 시 `true`로, 이후 사용자가 그 입력란을 직접 수정하면 `false`(또는 초기화)로 바뀌는 별도 플래그가 새로 필요함 — 단순히 기존 값을 실어보내는 게 아니라 작은 상태 추가가 필요한 작업이라는 점을 명확히 남김. `generatePersona` 호출 시 `randomFill` 필드로 실어 보내면 백엔드는 이미 이 필드를 받게(옵션) 되어 있어 즉시 반영됨(하위호환 유지 — 안 보내도 기존처럼 동작, `null`로 기록)
+  - 두 항목 다 지금 당장 안 해도 서비스는 정상 동작함(옵션 필드/보고성 엔드포인트라 안 보내도 에러 없음) — 다만 F-5를 안 하면 `share_result` 이벤트가 영원히 안 쌓이고, F-6을 안 하면 `randomFill`이 항상 `null`로만 쌓임
+
+#### 남은 것
+
+- 대시보드/분석 UI는 이번 범위 밖(사용자 요청대로 미착수) — 지금은 SQL로 직접 `analytics_events`를 조회해야 함
+- F-5/F-6 프론트 작업 전까지는 `share_result` 이벤트가 안 쌓이고 `randomFill`은 항상 `null`
+
+---
+
 ## 확정된 결정 요약 (빠른 참조용)
 
 | 항목 | 결정 | 근거 |
@@ -862,6 +941,7 @@
 | `/chat/turn` max_tokens | 600 → 2000으로 복원 | Sonnet 5 적응형 thinking이 같은 예산을 나눠 써서 600은 JSON 파싱 크래시 유발 (Step 18) |
 | 미션 생성 캐싱 | (언어, 난이도, 상대방, 성격) 완전일치, 조합당 5개 풀 + 랜덤 서빙, 인메모리 모드는 스킵 | 유사도 매칭 없이도 랜덤 버튼 트래픽에서 자연히 적중 — 자유입력엔 항상 신선한 미션 (Step 19) |
 | DB 마이그레이션 방법 | `supabase db query --linked -f schema.sql` (Management API, 비밀번호 불필요) | `psql` 직접 연결보다 간편, Step 19에서 발견 |
+| 이벤트 수집 | `analytics_events` 테이블 하나에 5종 이벤트(미션생성/미션종료/힌트사용/공유/LLM에러) 기록, `analytics.ts`가 fail-open으로 감쌈. 대시보드는 미착수(SQL 직접 조회) | Phase 12 — 공유 이벤트는 프론트 F-5 완료 전까지 미수집 |
 | **백엔드 async 에러 처리** | **모든 async 라우트는 반드시 `asyncHandler()`로 감쌀 것.** 라우트는 `res.status().json()` 대신 `AppError`를 throw | Express 4는 async rejection을 안 잡음 → 무응답 + **프로세스 사망**이 실제로 발생 (Phase 9 Task 25-1에서 재현) |
 | 백엔드 에러 응답 | 형태 변경 없음 — 전부 `{ error: ... }` 유지. 생성 위치만 `errorHandler` 한 곳으로 집중 | 앱인토스는 자체 백엔드 응답 형식을 강제하지 않음(Task 26-1) → 프론트 계약 유지가 맞음 |
 | LLM 호출 타임아웃 | `timeout: 30초`(수료증만 60초), `maxRetries: 1` | SDK 기본값 10분×3회 = 최악 30분 대기였음. 무한 대기보다 빠른 실패 (Task 27-2) |
